@@ -747,6 +747,9 @@ function empty(title, text, opts) {
 
 function render() {
   if (!state) return;
+  // Signed out: the sign-in screen is all there is
+  document.body.classList.toggle('is-gated', !state.account);
+  if (!state.account) { renderGate(); return; }
   renderHeader();
   updateMatchToast();
   ({ party: renderParty, profiles: renderProfiles, friends: renderFriends, explore: renderExplore, lines: renderLines, collection: renderCollection, stats: renderStats, settings: renderSettings }[tab] || renderParty)();
@@ -769,7 +772,8 @@ api.onState((s) => {
   const acctKey = JSON.stringify(s.account || null);
   const acctChanged = acctKey !== lastAcctKey;
   lastAcctKey = acctKey;
-  if (tab === 'party' || tab === 'lines' || tab === 'friends' || (tab === 'settings' && (partyChanged || acctChanged || watchKey(s) !== lastWatchKey))) render();
+  if (acctChanged || !s.account) { if (acctChanged) render(); return; } // signing in/out swaps the whole screen
+  if (tab === 'party' || tab === 'lines' || tab === 'friends' || (tab === 'settings' && (partyChanged || watchKey(s) !== lastWatchKey))) render();
   lastWatchKey = watchKey(s);
   if (tab === 'settings') {
     const box = document.getElementById('import');
@@ -868,4 +872,24 @@ function bindAuth() {
     if (!r.ok) { say(/expired|invalid/i.test(r.error || '') ? 'That code is wrong or expired. Send a new one.' : r.error, 'error'); return; }
   };
   code.onkeydown = (e) => { if (e.key === 'Enter') verify.click(); };
+}
+
+// ---------- sign-in screen (before the app) ----------
+function renderGate() {
+  if (document.getElementById('authEmail')) return; // already showing; don't wipe what they typed
+  view.innerHTML = `<div class="gate">
+    <img class="gate__logo" src="assets/ff-mark.png" alt="">
+    <h1 class="gate__title">Sign in to ff</h1>
+    <p class="gate__sub">Enter your email and we'll send you a 6-digit code. No password needed, and you'll stay signed in on this PC.</p>
+    <div class="field"><span>Email</span>
+      <div class="inline"><input class="input" type="email" id="authEmail" placeholder="you@example.com" autocomplete="email" aria-describedby="authMsg">
+        <button class="btn btn--primary" id="authSend" type="button">Send code</button></div></div>
+    <div class="field" id="authCodeRow" hidden><span>6-digit code from the email</span>
+      <div class="inline"><input class="input gate__code" id="authCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" aria-describedby="authMsg">
+        <button class="btn btn--primary" id="authVerify" type="button">Sign in</button></div></div>
+    <p class="msg" id="authMsg" role="status"></p>
+    <p class="gate__fine">Your email is only used to sign you in. ff isn't endorsed by Riot Games.</p>
+  </div>`;
+  bindAuth();
+  document.getElementById('authEmail').focus();
 }

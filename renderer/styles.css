@@ -1319,3 +1319,15 @@ html:has(.overlay-body), .overlay-body { overflow: hidden; background: transpare
 .ov-body::-webkit-scrollbar { width: 8px; }
 .ov-body::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
 .ov-body::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- sign-in screen ---------- */
+body.is-gated .topbar { display: none; }
+body.is-gated .toast-root, body.is-gated .mtoast--update { display: none; }
+.gate { max-width: 440px; margin: 10vh auto 0; padding: 36px 32px; display: flex; flex-direction: column; gap: 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-3); box-shadow: var(--shadow); text-align: center; }
+.gate__logo { width: 88px; height: 88px; object-fit: contain; margin: 0 auto -4px; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .5)); }
+.gate__title { margin: 0; font: 800 28px/1.1 var(--display); }
+.gate__sub { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+.gate .field { text-align: left; }
+.gate__code { font: 700 20px/1 var(--display); letter-spacing: .3em; }
+.gate__fine { margin: 4px 0 0; font-size: 12px; color: var(--faint); }
