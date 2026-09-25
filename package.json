@@ -1,0 +1,60 @@
+{
+  "name": "skinmatch",
+  "version": "1.1.0",
+  "description": "Your party's League stats, skins and champ select.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.3.0",
+    "ws": "^8.18.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.agtr.ff",
+    "productName": "ff",
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "build/tray.png",
+      "build/icon.png",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ff",
+      "runAfterFinish": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "lapis-xo",
+        "repo": "ff",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "author": "AGTR Studios",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lapis-xo/ff.git"
+  }
+}

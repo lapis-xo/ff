@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://raw.communitydragon.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="overlay-body">
+  <div class="ov">
+    <div class="ov-head">
+      <img class="brand__logo brand__logo--sm" src="assets/ff-mark.png" alt="">
+      <!-- "<span class=pc-2>Jinx</span> <em>&amp;</em> <span class=pc-me>Ahri</span> ..." or "ff" when nothing is picked -->
+      <div class="ov-title" id="title">ff</div>
+      <button class="ov-close" id="close" aria-label="Hide overlay for this champ select">×</button>
+    </div>
+    <!-- .ov-match blocks, then .ov-label "Switch to match" + .ov-line rows, or .ov-empty -->
+    <div class="ov-body" id="body"></div>
+    <!-- ARAM only: .ov-bench with .bench-chip items; leave empty otherwise -->
+    <div id="bench"></div>
+  </div>
+  <script src="common.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>
