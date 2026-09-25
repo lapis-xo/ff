@@ -1310,3 +1310,5 @@ td.eog__gold { color: #d8b45a; }
 .qchip i { width: 10px; height: 10px; }
 .qchip small { font-size: 13.5px; }
 @container app (max-width: 1100px) { .qhead__mode { font-size: 26px; } .qhead__icon { width: 44px; height: 44px; } }
+/* "Picking..." sits near the top of the banner, clear of the crest */
+.csb__picking { inset: auto 0 auto 0; top: 12%; display: block; text-align: center; }
