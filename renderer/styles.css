@@ -1295,3 +1295,6 @@ td.eog__gold { color: #d8b45a; }
 .menu__item--update { color: var(--match-a); }
 .menu__item--update svg { stroke: var(--match-a); }
 .mtoast--update { position: fixed; left: 20px; bottom: 20px; z-index: 50; }
+
+/* hidden menu items stay hidden (the flex layout was overriding it) */
+.menu__item[hidden] { display: none; }

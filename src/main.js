@@ -26,8 +26,16 @@ function setupUpdates() {
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 10_000);
   setInterval(check, 4 * 3600e3);
-  ipcMain.handle('installUpdate', () => { quitting = true; autoUpdater.quitAndInstall(false, true); });
+  updaterRef = autoUpdater;
 }
+let updaterRef = null;
+// Only restarts when an update has actually been downloaded
+ipcMain.handle('installUpdate', () => {
+  if (!updaterRef || !updateInfo?.ready) return false;
+  quitting = true;
+  updaterRef.quitAndInstall(false, true);
+  return true;
+});
 
 const MAX_FRIENDS = 4;
 // Data folder stays 'skinmatch' so renaming the app doesn't lose settings, friends or history

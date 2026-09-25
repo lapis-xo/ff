@@ -1,6 +1,6 @@
 {
   "name": "skinmatch",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Your party's League stats, skins and champ select.",
   "main": "src/main.js",
   "scripts": {
