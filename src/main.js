@@ -101,6 +101,7 @@ const peer = new Cloud(() => me && { ...me, stats: summary, history: sharedHisto
   },
 });
 
+let peerVersion = 0; // counts friend data updates (drives Party Snapshot refreshes)
 const party = () => settings.party.map((id) => known[id]).filter(Boolean);
 const shortName = (n) => (n || '').split('#')[0];
 
@@ -214,6 +215,8 @@ function getState() {
     history: { games: matchStore ? matchStore.values().length : 0 },
     queue: lobbyQueue && { ...lobbyQueue, phase, search },
     blank: regaliaView(null), // the default banner, for empty lobby spots
+    // bumps whenever a game is saved or a friend's data changes, so the Party Snapshot refreshes
+    statsVersion: `${details ? Object.keys(details.data).length : 0}:${peerVersion}`,
     update: updateInfo, updateStatus, version: app.getVersion(),
     cloud: peer.status === 'connected' ? 'Connected' : peer.status === 'starting' ? 'Connecting...' : `Not connected: ${peer.status}`,
     ggez: lcu.connected ? ggez() : false,
@@ -512,6 +515,8 @@ function modeOf(d) {
   const name = (queueNames[d.queueId] || '').toLowerCase();
   const gm = (d.gameMode || '').toUpperCase();
   if (gm === 'CHERRY' || name.includes('arena')) return 'arena';
+  if (gm === 'KIWI') return 'mayhem'; // ARAM: Mayhem's code name in game data
+  if (gm === 'SWIFTPLAY') return 'rift';
   if (name.includes('mayhem')) return 'mayhem';
   if (gm === 'ARAM' || name.includes('aram')) return 'aram';
   if (SR.includes(d.queueId) || gm === 'CLASSIC') return 'rift';
@@ -1100,6 +1105,7 @@ async function applySkin(skinId) {
 
 // ---------- friends ----------
 peer.on('inventory', (inv) => {
+  peerVersion++;
   const isNew = !known[inv.puuid];
   known[inv.puuid] = inv;
   if (isNew) recomputeSummary(); // shared history only lists ff users we know about

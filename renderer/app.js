@@ -169,7 +169,7 @@ async function renderParty() {
   const emptyBanner = () => `<div class="lbanner lbanner--empty" ${blank.banner ? `style="--banner:url('${esc(blank.banner)}'); --orn:${Number(blank.orn) || 0.8}"` : ''} aria-hidden="true"></div>`;
   cells.push(...slots.map((x) => x || emptyBanner()));
   const smIds = friends.filter((f) => f.onSkinMatch).map((f) => f.puuid);
-  const key = smIds.join(',');
+  const key = `${smIds.join(',')}|${state.statsVersion || ''}`;
   if (key !== partyStatsKey) { partyStats = null; partyStatsKey = key; }
   if (smIds.length && !partyStats) partyStats = await api.partySummary(smIds);
   const s = partyStats;
@@ -495,7 +495,7 @@ function renderLive() {
   }
   // Party Snapshot stays underneath during champ select
   const smIds = (state.lobby || []).filter((f) => f.onSkinMatch).map((f) => f.puuid);
-  const key = smIds.join(',');
+  const key = `${smIds.join(',')}|${state.statsVersion || ''}`;
   if (key !== partyStatsKey) { partyStats = null; partyStatsKey = key; }
   if (smIds.length && !partyStats) {
     api.partySummary(smIds).then((ps) => { partyStats = ps; if (tab === 'party' && inChampSelect()) renderLive(); });
