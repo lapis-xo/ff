@@ -1312,3 +1312,10 @@ td.eog__gold { color: #d8b45a; }
 @container app (max-width: 1100px) { .qhead__mode { font-size: 26px; } .qhead__icon { width: 44px; height: 44px; } }
 /* "Picking..." sits near the top of the banner, clear of the crest */
 .csb__picking { inset: auto 0 auto 0; top: 12%; display: block; text-align: center; }
+/* overlay: the window itself never scrolls; only the panel's content does, inside the rounded edge */
+html:has(.overlay-body), .overlay-body { overflow: hidden; background: transparent; }
+.overlay-body .ov { box-sizing: border-box; }
+.ov-body { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.ov-body::-webkit-scrollbar { width: 8px; }
+.ov-body::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+.ov-body::-webkit-scrollbar-track { background: transparent; }
