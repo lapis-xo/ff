@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('skinmatch', {
   getState: () => ipcRenderer.invoke('getState'),
   onState: (cb) => ipcRenderer.on('state', (_e, s) => cb(s)),
+  onPenta: (cb) => ipcRenderer.on('penta', () => cb()),
+  testPenta: () => ipcRenderer.invoke('testPenta'),
   applySkin: (id) => ipcRenderer.invoke('applySkin', id),
   refresh: () => ipcRenderer.invoke('refresh'),
   setSettings: (patch) => ipcRenderer.invoke('setSettings', patch),

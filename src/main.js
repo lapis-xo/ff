@@ -45,6 +45,7 @@ function setupUpdates() {
 let updateCheck = null;
 let updaterRef = null;
 // Only restarts when an update has actually been downloaded
+ipcMain.handle('testPenta', () => { spamPings(); return true; });
 ipcMain.handle('authSend', async (_e, email) => { try { await peer.sendCode(String(email).trim()); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
 ipcMain.handle('authVerify', async (_e, email, code) => { try { await peer.verifyCode(String(email).trim(), String(code).trim()); broadcast(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
 ipcMain.handle('authSignOut', async () => { await peer.signOut(); broadcast(); return true; });
@@ -92,7 +93,27 @@ let importStatus = null;
 let stopImport = false;
 
 const live = new LiveGame();
-live.on('update', () => broadcast());
+live.on('update', () => { checkPenta(); broadcast(); });
+
+// Pentakill: when you get one while playing with your party, your ff gets spammed with "?" pings
+const seenPenta = new Set();
+function checkPenta() {
+  const d = live.data;
+  const events = d?.events?.Events || [];
+  const now = d?.gameData?.gameTime || 0;
+  const mine = String(me?.name || '').split('#')[0].toLowerCase();
+  for (const e of events) {
+    if (e.EventName !== 'Multikill' || Number(e.KillStreak) < 5 || seenPenta.has(e.EventID)) continue;
+    seenPenta.add(e.EventID);
+    const killer = String(e.KillerName || '').split('#')[0].toLowerCase();
+    const inParty = lobby.some((m) => m.puuid && m.puuid !== me?.puuid);
+    const fresh = now - (e.EventTime || 0) < 30; // not an old penta from before ff opened
+    if (killer && killer === mine && inParty && fresh && settings.pentaSpam !== false) spamPings();
+  }
+}
+function spamPings() {
+  if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('penta');
+}
 const IN_GAME = ['GameStart', 'InProgress', 'Reconnect'];
 // Shared data goes through Supabase now (see cloud.js); "peer" kept as the name the rest of the app uses
 const peer = new Cloud(() => me && { ...me, stats: summary, history: sharedHistory, skinLog: skinLog?.data || {}, form: myForm }, {
