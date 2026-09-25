@@ -8,6 +8,7 @@ let statsView = { who: 'me', mode: 'all', friend: '' };
 let liveView = { line: null, showAll: false };
 let partyStats = null;
 let partyStatsKey = '';
+let lastAcctKey = null; // re-draw Settings when you sign in/out or your account links
 let wasInChampSelect = false;
 let lastRefreshKey = '';
 let lastWatchKey = '';
@@ -674,7 +675,23 @@ function importHtml() {
 
 function renderSettings() {
   const s = state.settings;
+  const acct = state.account;
+  const LINK_TEXT = { linked: 'Linked to this League account', linking: 'Linking to this League account...',
+    'in use by another install': "This League account is in use by ff on another PC. Sign in there first, or wait 14 days.",
+    'claimed by another account': 'This League account is linked to a different ff sign-in.' };
   view.innerHTML = `<div class="settings">
+    <div class="setting"><div style="flex:1"><div class="setting__title">Account</div>
+      ${acct ? `<p class="setting__desc">Signed in as <b>${esc(acct.email || '')}</b>.</p>
+        <p class="help">${esc(LINK_TEXT[acct.link] || acct.link || 'Open League to link your account.')}</p>`
+      : `<p class="setting__desc">Sign in with your email so your ff identity follows you: reinstalls and other PCs just work, and nobody else can update your data.</p>
+        <div class="field" style="margin-top:12px"><span>Email</span>
+          <div class="inline"><input class="input" type="email" id="authEmail" placeholder="you@example.com" autocomplete="email" aria-describedby="authMsg">
+            <button class="btn btn--primary" id="authSend" type="button">Send code</button></div></div>
+        <div class="field" id="authCodeRow" hidden style="margin-top:10px"><span>6-digit code from the email</span>
+          <div class="inline"><input class="input" id="authCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" aria-describedby="authMsg">
+            <button class="btn btn--primary" id="authVerify" type="button">Sign in</button></div></div>
+        <p class="msg" id="authMsg" role="status"></p>`}
+      </div>${acct ? '<button class="btn" id="authOut" type="button">Sign out</button>' : ''}</div>
     <div class="setting"><div style="flex:1"><div class="setting__title">Friends online</div>
       <p class="setting__desc">ff shares your skins, banner and stats with friends through ff's online service, so friends show up as soon as they're in your League lobby with ff open, on any network.</p>
       <p class="help" id="cloudStatus">${esc(state.cloud || '')}</p></div>
@@ -712,6 +729,7 @@ function renderSettings() {
     document.getElementById('keyMsg').textContent = 'Key saved.';
   };
   document.getElementById('overlay').onchange = (e) => api.setSettings({ overlay: e.target.checked });
+  bindAuth();
   bindImport();
 }
 
@@ -748,7 +766,10 @@ api.onState((s) => {
   const refreshKey = s.refreshing.join(',');
   if (tab === 'profiles' && refreshKey !== lastRefreshKey) render();
   lastRefreshKey = refreshKey;
-  if (tab === 'party' || tab === 'lines' || tab === 'friends' || (tab === 'settings' && (partyChanged || watchKey(s) !== lastWatchKey))) render();
+  const acctKey = JSON.stringify(s.account || null);
+  const acctChanged = acctKey !== lastAcctKey;
+  lastAcctKey = acctKey;
+  if (tab === 'party' || tab === 'lines' || tab === 'friends' || (tab === 'settings' && (partyChanged || acctChanged || watchKey(s) !== lastWatchKey))) render();
   lastWatchKey = watchKey(s);
   if (tab === 'settings') {
     const box = document.getElementById('import');
@@ -817,4 +838,34 @@ function showUpdateToast(version) {
   document.getElementById('toastRoot').before(el);
   el.querySelector('[data-up-now]').onclick = () => api.installUpdate();
   el.querySelector('[data-up-later]').onclick = () => el.remove();
+}
+
+// ---------- sign-in (Settings > Account) ----------
+function bindAuth() {
+  const out = document.getElementById('authOut');
+  if (out) out.onclick = async () => { await api.authSignOut(); };
+  const send = document.getElementById('authSend');
+  if (!send) return;
+  const email = document.getElementById('authEmail'), code = document.getElementById('authCode'), msg = document.getElementById('authMsg');
+  const say = (t, kind = '') => { msg.className = `msg ${kind ? `msg--${kind}` : ''}`; msg.textContent = t; };
+  send.onclick = async () => {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim())) { say('Enter a valid email address.', 'error'); return; }
+    send.disabled = true; say('Sending...');
+    const r = await api.authSend(email.value);
+    send.disabled = false;
+    if (!r.ok) { say(r.error || "Couldn't send the code. Try again in a minute.", 'error'); return; }
+    document.getElementById('authCodeRow').hidden = false;
+    say(`Code sent to ${email.value.trim()}. Check your inbox (and spam).`, 'ok');
+    code.focus();
+  };
+  email.onkeydown = (e) => { if (e.key === 'Enter') send.click(); };
+  const verify = document.getElementById('authVerify');
+  verify.onclick = async () => {
+    if (!code.value.trim()) return;
+    verify.disabled = true; say('Checking...');
+    const r = await api.authVerify(email.value, code.value);
+    verify.disabled = false;
+    if (!r.ok) { say(/expired|invalid/i.test(r.error || '') ? 'That code is wrong or expired. Send a new one.' : r.error, 'error'); return; }
+  };
+  code.onkeydown = (e) => { if (e.key === 'Enter') verify.click(); };
 }

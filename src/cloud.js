@@ -16,9 +16,20 @@ const MAX_BYTES = 550_000;      // stay under the server's payload limit
 
 const headers = (extra = {}) => ({ apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', ...extra });
 
+// ---------- sign-in (email code) ----------
+async function authCall(path, body, token) {
+  const res = await fetch(`${URL}/auth/v1/${path}`, { method: 'POST', headers: headers(token ? { Authorization: `Bearer ${token}` } : {}), body: JSON.stringify(body || {}) });
+  const text = await res.text();
+  let data = {}; try { data = JSON.parse(text); } catch { /* empty */ }
+  if (!res.ok) throw new Error(data.msg || data.error_description || data.message || `sign-in error ${res.status}`);
+  return data;
+}
+
 class Cloud extends EventEmitter {
-  constructor(getMine, { getInterest, getSecret }) {
+  constructor(getMine, { getInterest, getSecret, getAuth, setAuth }) {
     super();
+    this.getAuth = getAuth;         // () => saved session { email, userId, access, refresh, expires, links }
+    this.setAuth = setAuth;         // (session | null) => save it
     this.getMine = getMine;
     this.getInterest = getInterest; // () => [puuid...] we want data for
     this.getSecret = getSecret;     // () => this install's secret
@@ -41,6 +52,63 @@ class Cloud extends EventEmitter {
     return Boolean(t && Date.now() - t < ONLINE_MS);
   }
 
+  // Email a 6-digit sign-in code
+  async sendCode(email) {
+    await authCall('otp', { email, create_user: true });
+  }
+  // Check the code; on success we're signed in (and stay signed in)
+  async verifyCode(email, code) {
+    let data;
+    try { data = await authCall('verify', { type: 'email', email, token: code }); }
+    catch (e) { data = await authCall('verify', { type: 'signup', email, token: code }).catch(() => { throw e; }); }
+    this.saveSession(data);
+    this.lastHash = null; // republish as the signed-in owner
+    await this.link();
+    await this.publish(true);
+    return this.getAuth();
+  }
+  saveSession(d) {
+    const prev = this.getAuth() || {};
+    this.setAuth({ email: d.user?.email || prev.email, userId: d.user?.id || prev.userId, access: d.access_token, refresh: d.refresh_token,
+      expires: Date.now() + (d.expires_in || 3600) * 1000, links: prev.links || {} });
+  }
+  async signOut() {
+    const a = this.getAuth();
+    if (a?.access) authCall('logout', {}, a.access).catch(() => {});
+    this.setAuth(null);
+    this.lastHash = null;
+  }
+  // A fresh access token (they last an hour; the refresh token keeps you signed in)
+  async token() {
+    const a = this.getAuth();
+    if (!a?.refresh) return null;
+    if (a.access && Date.now() < a.expires - 60_000) return a.access;
+    try {
+      const d = await authCall('token?grant_type=refresh_token', { refresh_token: a.refresh });
+      this.saveSession(d);
+      return d.access_token;
+    } catch (e) {
+      if (/invalid|revoked|not found/i.test(e.message)) this.setAuth(null); // signed out elsewhere
+      return null;
+    }
+  }
+  // Claim this PC's League account for the signed-in user (once per League account)
+  async link() {
+    const mine = this.getMine();
+    const a = this.getAuth();
+    const tok = await this.token();
+    if (!mine?.puuid || !a || !tok) return null;
+    if (a.links?.[mine.puuid] === 'linked') return 'linked';
+    try {
+      const res = await fetch(`${URL}/rest/v1/rpc/ff_link`, { method: 'POST', headers: headers({ Authorization: `Bearer ${tok}` }),
+        body: JSON.stringify({ p_puuid: mine.puuid, p_secret: this.getSecret() }) });
+      const result = res.ok ? await res.json() : `error ${res.status}`;
+      const fresh = this.getAuth();
+      if (fresh) { fresh.links = { ...(fresh.links || {}), [mine.puuid]: result, [`${mine.puuid}:name`]: mine.name }; this.setAuth(fresh); }
+      return result;
+    } catch { return null; }
+  }
+
   // Send our row when it changed (or as a heartbeat so friends see us as online)
   async publish(force = false) {
     const mine = this.getMine();
@@ -55,13 +123,18 @@ class Cloud extends EventEmitter {
     const hash = crypto.createHash('sha1').update(json).digest('hex');
     if (!force && hash === this.lastHash && Date.now() - this.lastPublish < HEARTBEAT_MS) return;
     try {
-      const res = await fetch(`${URL}/rest/v1/rpc/ff_publish`, {
-        method: 'POST', headers: headers(),
-        body: JSON.stringify({ p_puuid: mine.puuid, p_secret: this.getSecret(), p_name: mine.name || null, p_payload: payload }),
-      });
+      // signed in and this League account is linked: publish as the account; otherwise the old install way
+      const a = this.getAuth();
+      if (a && a.links?.[mine.puuid] !== 'linked') await this.link();
+      const tok = a && this.getAuth()?.links?.[mine.puuid] === 'linked' ? await this.token() : null;
+      const res = tok
+        ? await fetch(`${URL}/rest/v1/rpc/ff_publish_auth`, { method: 'POST', headers: headers({ Authorization: `Bearer ${tok}` }),
+            body: JSON.stringify({ p_puuid: mine.puuid, p_name: mine.name || null, p_payload: payload }) })
+        : await fetch(`${URL}/rest/v1/rpc/ff_publish`, { method: 'POST', headers: headers(),
+            body: JSON.stringify({ p_puuid: mine.puuid, p_secret: this.getSecret(), p_name: mine.name || null, p_payload: payload }) });
       if (!res.ok) throw new Error(`publish ${res.status} ${(await res.text()).slice(0, 120)}`);
       const ok = await res.json();
-      this.status = ok ? 'connected' : 'row owned by another install';
+      this.status = ok ? 'connected' : tok ? 'this League account is linked to a different sign-in' : 'this League account is signed in on another PC; sign in here to use it';
       this.lastHash = hash; this.lastPublish = Date.now();
     } catch (e) {
       this.status = `offline (${e.message})`;

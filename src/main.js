@@ -45,6 +45,9 @@ function setupUpdates() {
 let updateCheck = null;
 let updaterRef = null;
 // Only restarts when an update has actually been downloaded
+ipcMain.handle('authSend', async (_e, email) => { try { await peer.sendCode(String(email).trim()); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
+ipcMain.handle('authVerify', async (_e, email, code) => { try { await peer.verifyCode(String(email).trim(), String(code).trim()); broadcast(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
+ipcMain.handle('authSignOut', async () => { await peer.signOut(); broadcast(); return true; });
 ipcMain.handle('checkForUpdates', () => { if (updateCheck) updateCheck(); return Boolean(updateCheck); });
 ipcMain.handle('installUpdate', () => {
   if (!updaterRef || !updateInfo?.ready) return false;
@@ -95,6 +98,8 @@ const IN_GAME = ['GameStart', 'InProgress', 'Reconnect'];
 const peer = new Cloud(() => me && { ...me, stats: summary, history: sharedHistory, skinLog: skinLog?.data || {}, form: myForm }, {
   // whose data we want: everyone in the lobby / champ select, plus friends
   getInterest: () => [...lobby.map((m) => m.puuid), ...Object.keys(known), ...settings.party, ...(session?.myTeam || []).map((c) => c.puuid)],
+  getAuth: () => settings.auth || null,
+  setAuth: (a) => { settings.auth = a; saveSettings(); broadcast(); },
   getSecret: () => {
     if (!settings.cloudSecret) { settings.cloudSecret = require('crypto').randomBytes(32).toString('hex'); saveSettings(); }
     return settings.cloudSecret;
@@ -210,7 +215,8 @@ function getState() {
     available: Object.values(known).filter((f) => !settings.party.includes(f.puuid) && peer.isOnline(f.puuid)).map(friendView),
     maxFriends: MAX_FRIENDS,
     champSelect: champSelectState(),
-    settings: { ...settings, riotKey: settings.riotKey ? 'saved' : '' },
+    // secrets stay in the main process: the window only needs to know they exist
+    settings: { ...settings, riotKey: settings.riotKey ? 'saved' : '', auth: undefined, cloudSecret: undefined, idMap: undefined },
     importStatus,
     history: { games: matchStore ? matchStore.values().length : 0 },
     queue: lobbyQueue && { ...lobbyQueue, phase, search },
@@ -219,6 +225,7 @@ function getState() {
     statsVersion: `${details ? Object.keys(details.data).length : 0}:${peerVersion}`,
     update: updateInfo, updateStatus, version: app.getVersion(),
     cloud: peer.status === 'connected' ? 'Connected' : peer.status === 'starting' ? 'Connecting...' : `Not connected: ${peer.status}`,
+    account: settings.auth ? { email: settings.auth.email, link: me ? settings.auth.links?.[me.puuid] || 'linking' : null } : null,
     ggez: lcu.connected ? ggez() : false,
     live: (() => { try { return liveView(live.data); } catch (e) { console.error('live view', e.message); return null; } })(),
     watch: settings.watch.map((w) => ({ puuid: w.puuid, ...splitName(players?.data[w.puuid]?.name || w.name), icon: profileIcon(players?.data[w.puuid]?.iconId) })),
