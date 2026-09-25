@@ -1020,7 +1020,7 @@ function notifyMatch(cs) {
   const key = `${cs.myChamp?.id}:${best.lineId}`;
   if (key === lastNotifyKey) return;
   lastNotifyKey = key;
-  if (mainWin?.isVisible() && mainWin.isFocused()) return; // the in-app pop-up covers it
+  if (mainWin && !mainWin.isDestroyed() && mainWin.isVisible() && mainWin.isFocused()) return; // the in-app pop-up covers it
   if (!Notification.isSupported()) return;
   const names = best.members.map((m) => m.name).join(', ');
   const n = new Notification({ title: `Match ${best.lineName}`, body: `You can match ${best.lineName} with ${names}. Click to open ff.`,
@@ -1068,7 +1068,8 @@ peer.on('offline', broadcast);
 
 // ---------- windows ----------
 function showMain() {
-  if (!mainWin) return;
+  if (quitting) return; // shutting down (quit or update restart): don't touch the window
+  if (!mainWin || mainWin.isDestroyed()) createMain(); // window was closed: open a fresh one
   if (mainWin.isMinimized()) mainWin.restore();
   mainWin.show();
   mainWin.focus();
