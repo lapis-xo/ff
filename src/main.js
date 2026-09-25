@@ -14,22 +14,38 @@ const byMastery = (list) => [...list].sort((a, b) => (b.championLevel - a.champi
 
 // ---------- self-updates from GitHub releases (lapis-xo/ff) ----------
 let updateInfo = null; // { version, ready }
+let updateStatus = { state: 'idle', text: 'Not checked yet' }; // shown in Settings
+// Updater log, so failures can be diagnosed: %APPDATA%\skinmatch\update.log
+function ulog(msg) {
+  try { fs.appendFileSync(path.join(app.getPath('userData'), 'update.log'), `${new Date().toISOString()} v${app.getVersion()} ${msg}\n`); } catch { /* ignore */ }
+}
+function setStatus(state, text) { updateStatus = { state, text, at: Date.now() }; ulog(`${state}: ${text}`); broadcast(); }
 function setupUpdates() {
-  if (!app.isPackaged) return; // only the installed app updates itself
+  if (!app.isPackaged) { updateStatus = { state: 'dev', text: 'Updates only run in the installed app' }; return; }
   let autoUpdater;
-  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+  try { ({ autoUpdater } = require('electron-updater')); } catch (e) { setStatus('error', `Updater missing: ${e.message}`); return; }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-available', (i) => { updateInfo = { version: i.version, ready: false }; broadcast(); });
-  autoUpdater.on('update-downloaded', (i) => { updateInfo = { version: i.version, ready: true }; broadcast(); });
-  autoUpdater.on('error', (e) => console.error('update check failed', e?.message));
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 10_000);
-  setInterval(check, 4 * 3600e3);
+  autoUpdater.logger = { info: (m) => ulog(`info ${m}`), warn: (m) => ulog(`warn ${m}`), error: (m) => ulog(`error ${m}`), debug: () => {} };
+  autoUpdater.on('checking-for-update', () => setStatus('checking', 'Checking for updates...'));
+  autoUpdater.on('update-not-available', () => setStatus('current', `Up to date (${app.getVersion()})`));
+  autoUpdater.on('update-available', (i) => { updateInfo = { version: i.version, ready: false }; setStatus('downloading', `Downloading ${i.version}...`); });
+  autoUpdater.on('download-progress', (p) => {
+    const pct = Math.floor(p.percent || 0);
+    if (pct !== updateStatus.pct) { updateStatus = { state: 'downloading', text: `Downloading ${updateInfo?.version || 'update'}: ${pct}%`, pct }; broadcast(); }
+  });
+  autoUpdater.on('update-downloaded', (i) => { updateInfo = { version: i.version, ready: true }; setStatus('ready', `${i.version} is ready. Restart to update.`); });
+  autoUpdater.on('error', (e) => setStatus('error', `Update failed: ${e?.message || e}`));
+  const check = () => autoUpdater.checkForUpdates().catch((e) => setStatus('error', `Update check failed: ${e?.message || e}`));
+  setTimeout(check, 8_000);
+  setInterval(check, 2 * 3600e3);
   updaterRef = autoUpdater;
+  updateCheck = check;
 }
+let updateCheck = null;
 let updaterRef = null;
 // Only restarts when an update has actually been downloaded
+ipcMain.handle('checkForUpdates', () => { if (updateCheck) updateCheck(); return Boolean(updateCheck); });
 ipcMain.handle('installUpdate', () => {
   if (!updaterRef || !updateInfo?.ready) return false;
   quitting = true;
@@ -190,7 +206,7 @@ function getState() {
     history: { games: matchStore ? matchStore.values().length : 0 },
     queue: lobbyQueue && { ...lobbyQueue, phase, search },
     blank: regaliaView(null), // the default banner, for empty lobby spots
-    update: updateInfo, version: app.getVersion(),
+    update: updateInfo, updateStatus, version: app.getVersion(),
     ggez: lcu.connected ? ggez() : false,
     live: (() => { try { return liveView(live.data); } catch (e) { console.error('live view', e.message); return null; } })(),
     watch: settings.watch.map((w) => ({ puuid: w.puuid, ...splitName(players?.data[w.puuid]?.name || w.name), icon: profileIcon(players?.data[w.puuid]?.iconId) })),

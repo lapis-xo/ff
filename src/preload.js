@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('skinmatch', {
   addFriendPuuid: (puuid) => ipcRenderer.invoke('addFriendPuuid', puuid),
   friends: () => ipcRenderer.invoke('friends'),
   installUpdate: () => ipcRenderer.invoke('installUpdate'),
+  checkForUpdates: () => ipcRenderer.invoke('checkForUpdates'),
   removeWatch: (puuid) => ipcRenderer.invoke('removeWatch', puuid),
   saveKey: (key) => ipcRenderer.invoke('saveKey', key),
   partySummary: (puuids) => ipcRenderer.invoke('partySummary', puuids),

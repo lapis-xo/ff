@@ -693,9 +693,16 @@ function renderSettings() {
       <button class="btn btn--primary" id="keySave">Save key</button></div><p class="msg msg--ok" id="keyMsg" role="status"></p></div></div></div>
     <div class="setting"><div style="flex:1"><div class="setting__title">Import full match history</div><p class="setting__desc">Pulls up to 2 years of your games from Riot, so your stats aren't limited to recent matches.</p>
       <div class="import" id="import">${importHtml()}</div></div></div>
+  <div class="setting"><div style="flex:1"><div class="setting__title">ff version ${esc(state.version || '')}</div>
+      <p class="setting__desc" id="updStatus">${esc(state.updateStatus?.text || '')}</p></div>
+      ${state.update?.ready ? '<button class="btn btn--match" id="updNow">Restart to update</button>' : '<button class="btn" id="updCheck">Check for updates</button>'}</div>
   <p class="legal">ff is not endorsed by Riot Games and does not reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
   </div>`;
   document.getElementById('autoApply').onchange = (e) => api.setSettings({ autoApply: e.target.checked });
+  const updCheck = document.getElementById('updCheck');
+  if (updCheck) updCheck.onclick = () => { updCheck.disabled = true; api.checkForUpdates(); };
+  const updNow = document.getElementById('updNow');
+  if (updNow) updNow.onclick = () => api.installUpdate();
   document.getElementById('startWithWindows').onchange = (e) => api.setSettings({ startWithWindows: e.target.checked });
   document.getElementById('openWithLeague').onchange = (e) => api.setSettings({ openWithLeague: e.target.checked });
   document.getElementById('keySave').onclick = async () => {
@@ -747,6 +754,8 @@ api.onState((s) => {
   const partyChanged = JSON.stringify(s.party.map((f) => f.puuid)) !== JSON.stringify(state?.party.map((f) => f.puuid));
   state = s;
   updateMatchToast();
+  const us = document.getElementById('updStatus');
+  if (us) us.textContent = s.updateStatus?.text || '';
   if (partyChanged) partyStats = null;
   renderHeader();
   // Jump to Party once when champ select starts, since that's where the matching happens
