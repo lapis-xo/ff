@@ -689,8 +689,9 @@ async function startImport(key) {
     save: () => matchStore.save(),
   };
   try {
+    riotApi();
     await backfill({
-      key, region, puuid: me.puuid, store: target, details,
+      key, region, puuid: me.puuid, riotId: me.name, people: knownPeople(), store: target, details,
       shouldStop: () => stopImport,
       onProgress: (p) => { importStatus = { running: true, ...p }; broadcast(); },
     });
@@ -833,15 +834,32 @@ function profileList() {
   });
 }
 
+// Riot API client with remembered ID translations (per key, so a new key relearns them)
+function riotApi() {
+  const api = getApi(settings.riotKey, settings.region || 'NA');
+  if (!api.onLearn) {
+    const fp = settings.riotKey.slice(-8);
+    settings.idMap = settings.idMap?.fp === fp ? settings.idMap : { fp, map: {} };
+    for (const [l, a] of Object.entries(settings.idMap.map)) { api.toApi.set(l, a); api.toLocal.set(a, l); }
+    api.onLearn = (l, a) => { settings.idMap.map[l] = a; saveSettings(); };
+  }
+  return api;
+}
+const riotIdOf = (puuid) => (puuid === me?.puuid ? me.name : players.data[puuid]?.name || known[puuid]?.name || settings.watch.find((w) => w.puuid === puuid)?.name || null);
+const knownPeople = () => [...Object.values(known), ...settings.watch].filter((p) => p?.puuid && p.name && p.puuid !== me?.puuid);
+
 async function refreshPlayer(puuid) {
   if (!settings.riotKey || refreshing.has(puuid)) return;
   refreshing.add(puuid);
   broadcast();
-  const api = getApi(settings.riotKey, settings.region || 'NA');
+  const api = riotApi();
   const prev = players.data[puuid] || {};
   try {
-    const [acct, summ, ranks, top] = await Promise.all([api.accountByPuuid(puuid), api.summoner(puuid), api.ranks(puuid), api.topMastery(puuid, 20)]);
-    const ids = (await api.matchIds(puuid, 0, 20)) || [];
+    // this key's ID for the player (and for everyone we know, so their games line up)
+    const apiId = await api.id(puuid, riotIdOf(puuid));
+    for (const p of knownPeople()) await api.id(p.puuid, p.name);
+    const [acct, summ, ranks, top] = await Promise.all([api.accountByPuuid(apiId), api.summoner(apiId), api.ranks(apiId), api.topMastery(apiId, 20)]);
+    const ids = (await api.matchIds(apiId, 0, 20)) || [];
     for (const id of ids) {
       const gameId = Number(id.split('_')[1]);
       if (details.has(gameId)) continue;

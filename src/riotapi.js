@@ -17,6 +17,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class RiotApi {
   constructor(key, region) {
+    this.toApi = new Map();
+    this.toLocal = new Map();
     this.key = key.trim();
     const [regional, platform] = REGIONS[String(region).toUpperCase()] || REGIONS.NA;
     this.regional = `${regional}.api.riotgames.com`;
@@ -52,7 +54,8 @@ class RiotApi {
       if (res.status === 401 || res.status === 403) throw new KeyError('Your Riot API key is invalid or expired. Paste a fresh one in Settings. Everything already loaded stays.');
       if (res.status === 404) return null;
       if (res.status === 429 || res.status >= 500) { await sleep((Number(res.headers['retry-after']) || 5) * 1000); continue; }
-      throw new Error(`Riot API error ${res.status}`);
+      let why = ''; try { why = JSON.parse(res.body)?.status?.message || ''; } catch { /* no details */ }
+      throw new Error(`Riot API error ${res.status}${why ? `: ${why}` : ''}`);
     }
     throw new Error('Riot API kept failing, try again later');
   }
@@ -65,7 +68,34 @@ class RiotApi {
   matchIds(puuid, start = 0, count = 20, startTime) {
     return this.get(this.regional, `/lol/match/v5/matches/by-puuid/${puuid}/ids?start=${start}&count=${count}${startTime ? `&startTime=${startTime}` : ''}`);
   }
-  match(id) { return this.get(this.regional, `/lol/match/v5/matches/${id}`); }
+  // Matches come back with this key's player IDs; swap in the IDs ff uses for people it knows
+  async match(id) {
+    const m = await this.get(this.regional, `/lol/match/v5/matches/${id}`);
+    if (!m) return m;
+    const local = (p) => this.toLocal.get(p) || p;
+    if (m.metadata?.participants) m.metadata.participants = m.metadata.participants.map(local);
+    for (const p of m.info?.participants || []) p.puuid = local(p.puuid);
+    return m;
+  }
+
+  // Riot gives every API key its own encrypted version of each player ID, which differs from the
+  // ID the League client uses. Translate: ff's ID -> this key's ID, via the Riot ID (cached).
+  async id(localPuuid, riotId) {
+    if (this.toApi.has(localPuuid)) return this.toApi.get(localPuuid);
+    let apiPuuid = null;
+    const [name, tag] = String(riotId || '').split('#');
+    if (name && tag) {
+      try { apiPuuid = (await this.accountByRiotId(name, tag))?.puuid || null; } catch { /* fall through */ }
+    }
+    if (!apiPuuid) apiPuuid = localPuuid; // already this key's ID (e.g. found through search)
+    this.learn(localPuuid, apiPuuid);
+    return apiPuuid;
+  }
+  learn(localPuuid, apiPuuid) {
+    this.toApi.set(localPuuid, apiPuuid);
+    this.toLocal.set(apiPuuid, localPuuid);
+    if (this.onLearn) this.onLearn(localPuuid, apiPuuid);
+  }
 }
 
 // One shared client so imports and profile refreshes respect the same rate limit
@@ -76,13 +106,16 @@ function getApi(key, region) {
 }
 
 // Pull up to ~2 years of matches, skipping ones already stored. Resumable.
-async function backfill({ key, region, puuid, store, details, onProgress, shouldStop }) {
+async function backfill({ key, region, puuid, riotId, people = [], store, details, onProgress, shouldStop }) {
   const api = getApi(key, region);
+  // this key's version of your ID (and your friends', so they're recognized in imported games)
+  const apiPuuid = await api.id(puuid, riotId);
+  for (const p of people) await api.id(p.puuid, p.name);
   const startTime = Math.floor(Date.now() / 1000) - 2 * 365 * 24 * 3600;
   const ids = [];
   for (let start = 0; ; start += 100) {
     if (shouldStop()) return;
-    const page = await api.matchIds(puuid, start, 100, startTime);
+    const page = await api.matchIds(apiPuuid, start, 100, startTime);
     if (!page || !page.length) break;
     ids.push(...page);
     onProgress({ phase: 'Finding games', done: 0, total: ids.length });
