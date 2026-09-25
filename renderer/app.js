@@ -403,17 +403,18 @@ function liveCard() {
   ];
   const objectives = (t) => (arena ? '' : [plural(t.towers, 'tower'), t.inhibs ? plural(t.inhibs, 'inhib') : '',
     ...(rift ? [plural(t.dragons.length, 'drake'), t.heralds ? plural(t.heralds, 'herald') : '', t.barons ? plural(t.barons, 'baron') : ''] : [])].filter(Boolean).join(', '));
-  const team = (t) => {
+  const team = (t, ti) => {
     const mine = t.id === L.myTeam;
+    const label = mine ? 'Your team' : arena ? `Team ${ti + 1}` : 'Enemy team';
     return `<tbody class="${mine ? 'is-mine is-won' : 'is-lost'}">
-      <tr class="eog__team"><th colspan="3">${mine ? 'Your team' : arena ? 'Opponents' : 'Enemy team'}${arena ? '' : ` <span class="eog__side">${esc(t.side)}</span>`}</th>
+      <tr class="eog__team"><th colspan="3">${label}${arena ? (t.guessed ? ' <span class="eog__side" title="Grouped by who fights together; confirms as the game goes on">likely</span>' : '') : ` <span class="eog__side">${esc(t.side)}</span>`}</th>
         ${cols.map((c) => `<th class="${c.cls || ''}">${typeof c.head === 'function' ? c.head(t) : c.head}</th>`).join('')}
         <th class="eog__obj" title="${esc(t.dragons.join(', '))}">${objectives(t)}</th></tr>
       ${t.players.map((p) => `<tr class="${p.isMe ? 'is-me' : ''} ${p.slot ? pc(p.slot) : ''} ${p.dead ? 'is-dead' : ''}">
         <td class="eog__spells"><span>${box(p.spells[0], 'is-spell')}${box(p.spells[1], 'is-spell')}</span></td>
         <td class="eog__lvl">${p.level}</td>
         <td class="eog__who"><span class="eog__whoin"><span class="eog__champ lchamp">${img(p.champ.icon, p.champ.name)}
-            ${p.dead && p.respawn > 0 ? `<b class="lchamp__respawn" data-respawn="${p.respawn}" data-at="${L.receivedAt}">${p.respawn}</b>` : ''}</span>
+            ${p.dead && p.respawn > 900 ? '<b class="lchamp__respawn lchamp__out">Out</b>' : p.dead && p.respawn > 0 ? `<b class="lchamp__respawn" data-respawn="${p.respawn}" data-at="${L.receivedAt}">${p.respawn}</b>` : ''}</span>
           <span class="eog__name ${p.isParty ? 'is-friend' : ''}">${esc(p.name)}<small>${esc([p.champ.name, rift ? p.role : null].filter(Boolean).join(', '))}</small></span></span></td>
         ${cols.map((c) => `<td class="${c.cellCls || ''}">${c.cell(p)}</td>`).join('')}
         <td></td>

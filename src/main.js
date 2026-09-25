@@ -776,7 +776,8 @@ function liveView(d) {
       role: ({ TOP: 'Top', JUNGLE: 'Jungle', MIDDLE: 'Mid', BOTTOM: 'ADC', UTILITY: 'Support' })[String(p.position || '').toUpperCase()] || null,
       k: p.scores?.kills || 0, d: p.scores?.deaths || 0, a: p.scores?.assists || 0, cs: p.scores?.creepScore || 0, ward: Math.round(p.scores?.wardScore || 0),
       items: [0, 1, 2, 3, 4, 5, 6].map((n) => itemIcon(bySlot(n))),
-      spells: [p.summonerSpells?.summonerSpellOne?.displayName, p.summonerSpells?.summonerSpellTwo?.displayName].map((n) => spellByName[(n || '').toLowerCase()] || null),
+      // names can carry extra text like "Flash <i>(on cooldown)</i>"
+      spells: [p.summonerSpells?.summonerSpellOne?.displayName, p.summonerSpells?.summonerSpellTwo?.displayName].map((n) => spellByName[String(n || '').replace(/<[^>]*>/g, '').replace(/\(.*?\)/g, '').trim().toLowerCase()] || null),
       rune: game.runes[p.runes?.keystone?.id] || null,
       slot: person ? slots[person.puuid] || settings.colors[person.puuid] || null : null,
       isMe: Boolean(person && person.puuid === me?.puuid),
@@ -822,15 +823,85 @@ function liveView(d) {
       default: break;
     }
   }
+  const kind = ({ CLASSIC: 'rift', ARAM: 'aram', KIWI: 'mayhem', CHERRY: 'arena' })[String(d.gameData?.gameMode || '').toUpperCase()] || 'other';
+  let list = Object.values(teams).sort((a, b) => (b.id === myTeam) - (a.id === myTeam));
+  if (kind === 'arena') list = arenaTeams(players, d.events?.Events || [], champByName);
   for (const p of players) delete p._names;
-  const list = Object.values(teams).sort((a, b) => (b.id === myTeam) - (a.id === myTeam));
   return {
-    mode: d.gameData?.gameMode, time: d.gameData?.gameTime || 0, receivedAt: d.receivedAt, myTeam,
+    mode: d.gameData?.gameMode, time: d.gameData?.gameTime || 0, receivedAt: d.receivedAt, myTeam: kind === 'arena' ? 'MINE' : myTeam,
     // which kind of match this is, straight from the game (drives the columns and the header)
-    kind: ({ CLASSIC: 'rift', ARAM: 'aram', KIWI: 'mayhem', CHERRY: 'arena' })[String(d.gameData?.gameMode || '').toUpperCase()] || 'other',
+    kind,
     mapName: ({ 11: "Summoner's Rift", 12: 'Howling Abyss', 14: "Butcher's Bridge", 30: 'Rings of Wrath' })[d.gameData?.mapNumber] || null,
     teams: list, feed: feed.slice(-14).reverse().map((f) => ({ ...f, mine: f.team === myTeam })),
   };
+}
+
+// Arena: the live data only says ORDER/CHAOS, not who's in which duo or trio. Work it out:
+// your own team from champ select, everyone else from the kill feed (teammates assist each
+// other's kills and never kill each other), capped at the team size (3 in 3x6, 2 otherwise).
+function arenaTeams(players, events, champByName) {
+  const size = players.length >= 18 ? 3 : 2;
+  const idx = new Map();
+  players.forEach((p, i) => p._names.forEach((n) => n && idx.set(n, i)));
+  const find = (names) => { for (const n of [].concat(names)) { const i = idx.get(String(n || '').toLowerCase()); if (i != null) return i; } return null; };
+  const parent = players.map((_, i) => i);
+  const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  const sizeOf = (r) => players.filter((_, i) => root(i) === r).length;
+  const enemies = new Set(); // "a|b" pairs that killed each other: never teammates
+  const join = (a, b) => {
+    const ra = root(a), rb = root(b);
+    if (ra === rb || sizeOf(ra) + sizeOf(rb) > size) return;
+    for (let i = 0; i < players.length; i++) for (let j = 0; j < players.length; j++) {
+      if (root(i) === ra && root(j) === rb && enemies.has(`${i}|${j}`)) return;
+    }
+    parent[rb] = ra;
+  };
+  const kills = events.filter((e) => e.EventName === 'ChampionKill');
+  for (const e of kills) {
+    const k = find(e.KillerName), v = find(e.VictimName);
+    if (k != null && v != null) { enemies.add(`${k}|${v}`); enemies.add(`${v}|${k}`); }
+  }
+  // your team first, from champ select (by name, or champion if names are hidden)
+  const me = players.findIndex((p) => p.isMe);
+  if (me >= 0 && arenaTeam?.length) {
+    for (const t of arenaTeam) {
+      let i = t.name ? find(t.name) : null;
+      if (i == null && t.champ) i = players.findIndex((p, j) => j !== me && p.champ?.id === t.champ && root(j) === j);
+      if (i != null && i >= 0 && i !== me) join(me, i);
+    }
+  }
+  // then everyone else: count how often each pair appears together on a kill
+  const together = new Map();
+  for (const e of kills) {
+    const grp = [find(e.KillerName), ...(e.Assisters || []).map((a) => find(a))].filter((x) => x != null);
+    for (let a = 0; a < grp.length; a++) for (let b = a + 1; b < grp.length; b++) {
+      const key = grp[a] < grp[b] ? `${grp[a]}|${grp[b]}` : `${grp[b]}|${grp[a]}`;
+      together.set(key, (together.get(key) || 0) + 1);
+    }
+  }
+  [...together.entries()].sort((x, y) => y[1] - x[1]).forEach(([key]) => { const [a, b] = key.split('|').map(Number); join(a, b); });
+  // leftovers: group players still short a teammate if they've never fought each other (a best guess)
+  const guessed = new Set();
+  for (let pass = 0; pass < players.length; pass++) {
+    const roots = [...new Set(players.map((_, i) => root(i)))].filter((r) => sizeOf(r) < size);
+    let merged = false;
+    for (let x = 0; x < roots.length && !merged; x++) for (let y = x + 1; y < roots.length && !merged; y++) {
+      const before = root(roots[y]);
+      join(roots[x], roots[y]);
+      if (root(before) === root(roots[x])) { guessed.add(root(roots[x])); merged = true; }
+    }
+    if (!merged) break;
+  }
+  // build the teams: yours first, then by kills
+  const groups = new Map();
+  players.forEach((p, i) => { const r = root(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(p); });
+  const teamsOut = [...groups.values()].map((ps) => ({
+    id: ps.some((p) => p.isMe) ? 'MINE' : `T${ps[0].name}`, side: '', players: ps,
+    kills: ps.reduce((a, p) => a + p.k, 0), towers: 0, inhibs: 0, dragons: [], barons: 0, heralds: 0,
+    guessed: ps.length < size || guessed.has(root(players.indexOf(ps[0]))), // not confirmed by the kill feed yet
+  }));
+  teamsOut.sort((a, b) => (b.id === 'MINE') - (a.id === 'MINE') || b.kills - a.kills);
+  return teamsOut;
 }
 
 // ---------- profiles (Riot API + client) ----------
@@ -1052,7 +1123,9 @@ lcu.on('event', (evt) => {
   }
 });
 
+let arenaTeam = null; // your Arena teammates, remembered from champ select: [{ name, champ }]
 function onSessionChange() {
+  if (session?.myTeam?.length) arenaTeam = session.myTeam.map((c) => ({ name: String(c.gameName || '').toLowerCase(), champ: c.championId || c.championPickIntent || 0 }));
   const cs = champSelectState();
   if (cs.active && cs.mates.length) lastCS = cs;
   broadcast();

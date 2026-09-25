@@ -1298,3 +1298,5 @@ td.eog__gold { color: #d8b45a; }
 
 /* hidden menu items stay hidden (the flex layout was overriding it) */
 .menu__item[hidden] { display: none; }
+.lchamp__out { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.eog--live[data-kind="arena"] tbody + tbody .eog__team th { padding-top: 12px; }
