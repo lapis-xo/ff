@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { LCU } = require('./lcu');
 const { GameData, fetchInventory, champOf, profileIcon, assetUrl, cdragonGet, crestUrl } = require('./data');
-const { Peer } = require('./peer');
+const { Cloud } = require('./cloud');
 const { JsonStore, fromLcu, fromApi, detailFromLcu, detailFromApi, buildSummary, duoSummary } = require('./stats');
 const { backfill, getApi } = require('./riotapi');
 const { LiveGame } = require('./livegame');
@@ -91,7 +91,15 @@ let stopImport = false;
 const live = new LiveGame();
 live.on('update', () => broadcast());
 const IN_GAME = ['GameStart', 'InProgress', 'Reconnect'];
-const peer = new Peer(() => me && { ...me, stats: summary, history: sharedHistory, skinLog: skinLog?.data || {}, form: myForm });
+// Shared data goes through Supabase now (see cloud.js); "peer" kept as the name the rest of the app uses
+const peer = new Cloud(() => me && { ...me, stats: summary, history: sharedHistory, skinLog: skinLog?.data || {}, form: myForm }, {
+  // whose data we want: everyone in the lobby / champ select, plus friends
+  getInterest: () => [...lobby.map((m) => m.puuid), ...Object.keys(known), ...settings.party, ...(session?.myTeam || []).map((c) => c.puuid)],
+  getSecret: () => {
+    if (!settings.cloudSecret) { settings.cloudSecret = require('crypto').randomBytes(32).toString('hex'); saveSettings(); }
+    return settings.cloudSecret;
+  },
+});
 
 const party = () => settings.party.map((id) => known[id]).filter(Boolean);
 const shortName = (n) => (n || '').split('#')[0];
@@ -207,6 +215,7 @@ function getState() {
     queue: lobbyQueue && { ...lobbyQueue, phase, search },
     blank: regaliaView(null), // the default banner, for empty lobby spots
     update: updateInfo, updateStatus, version: app.getVersion(),
+    cloud: peer.status === 'connected' ? 'Connected' : peer.status === 'starting' ? 'Connecting...' : `Not connected: ${peer.status}`,
     ggez: lcu.connected ? ggez() : false,
     live: (() => { try { return liveView(live.data); } catch (e) { console.error('live view', e.message); return null; } })(),
     watch: settings.watch.map((w) => ({ puuid: w.puuid, ...splitName(players?.data[w.puuid]?.name || w.name), icon: profileIcon(players?.data[w.puuid]?.iconId) })),
@@ -1421,7 +1430,6 @@ app.whenReady().then(() => {
   // Game data even without the client open, so profiles work anytime
   game.load(cdragonGet).then(broadcast).catch(() => {});
   peer.start();
-  for (const a of settings.manualPeers) peer.add(a);
   createMain();
   createTray();
   applyLoginItem();

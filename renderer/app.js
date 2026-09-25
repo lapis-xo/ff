@@ -674,12 +674,10 @@ function importHtml() {
 function renderSettings() {
   const s = state.settings;
   view.innerHTML = `<div class="settings">
-    <div class="setting"><div style="flex:1"><div class="setting__title">Connect a friend's ff</div>
-      <p class="setting__desc">Friends with ff open are picked up automatically when they join your League lobby. Manage your friends list on the Friends tab.</p>
-      <div class="field" style="margin-top:12px"><span>Connect by address</span>
-        <div class="inline"><input class="input" id="peerAddr" placeholder="192.168.1.20" aria-label="Friend's address" aria-describedby="peerMsg"><button class="btn" id="peerConnect" type="button">Connect</button></div>
-        <p class="msg" id="peerMsg" role="status"></p><p class="help" id="myAddr">Only needed if a friend in your lobby doesn't show up.</p></div>
-    </div></div>
+    <div class="setting"><div style="flex:1"><div class="setting__title">Friends online</div>
+      <p class="setting__desc">ff shares your skins, banner and stats with friends through ff's online service, so friends show up as soon as they're in your League lobby with ff open, on any network.</p>
+      <p class="help" id="cloudStatus">${esc(state.cloud || '')}</p></div>
+    </div>
     <div class="setting"><div><div class="setting__title">Start with Windows</div><p class="setting__desc">ff waits quietly in the system tray (bottom-right, by the clock) so it's ready when you play. Closing the window hides it there; right-click the tray icon to quit.</p></div>
       <input type="checkbox" role="switch" class="toggle" id="startWithWindows" aria-label="Start with Windows" ${s.startWithWindows !== false ? 'checked' : ''}></div>
     <div class="setting"><div><div class="setting__title">Open when League starts</div><p class="setting__desc">Pops ff open as soon as the League client launches.</p></div>
@@ -711,21 +709,6 @@ function renderSettings() {
     await api.saveKey(k);
     document.getElementById('riotKey').value = '';
     document.getElementById('keyMsg').textContent = 'Key saved.';
-  };
-  api.myIp().then((ip) => { const el = document.getElementById('myAddr'); if (el) el.textContent = `Only needed if a friend in your lobby doesn't show up. This PC's address is ${ip || 'unknown'}.`; });
-  document.getElementById('peerConnect').onclick = async () => {
-    const input = document.getElementById('peerAddr'), msg = document.getElementById('peerMsg');
-    const addr = input.value.trim();
-    if (!addr) return;
-    msg.className = 'msg'; msg.textContent = 'Connecting...';
-    const res = await api.addAddress(addr);
-    if (!res.ok) {
-      input.className = 'input is-error'; msg.className = 'msg msg--error';
-      msg.textContent = `Couldn't reach ff at ${addr}. Check it's open on their PC and allowed through the firewall.`;
-      return;
-    }
-    input.className = 'input is-ok'; msg.className = 'msg msg--ok';
-    msg.textContent = res.added ? `Connected. ${res.name} is now a friend.` : `Connected to ${res.name}.`;
   };
   document.getElementById('overlay').onchange = (e) => api.setSettings({ overlay: e.target.checked });
   bindImport();
