@@ -1300,3 +1300,13 @@ td.eog__gold { color: #d8b45a; }
 .menu__item[hidden] { display: none; }
 .lchamp__out { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
 .eog--live[data-kind="arena"] tbody + tbody .eog__team th { padding-top: 12px; }
+/* bigger lobby header: mode line, icon and status chip */
+.qhead { gap: 12px; margin-bottom: var(--s-6); }
+.qhead__line { gap: 16px; }
+.qhead__icon { width: 54px; height: 54px; }
+.qhead__mode { font-size: 32px; letter-spacing: .07em; }
+.qhead__mode span + span::before { margin: 0 16px; }
+.qchip { height: 36px; padding: 0 16px; gap: 10px; font-size: 15px; }
+.qchip i { width: 10px; height: 10px; }
+.qchip small { font-size: 13.5px; }
+@container app (max-width: 1100px) { .qhead__mode { font-size: 26px; } .qhead__icon { width: 44px; height: 44px; } }
