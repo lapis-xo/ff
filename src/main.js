@@ -227,6 +227,8 @@ function getState() {
     cloud: peer.status === 'connected' ? 'Connected' : peer.status === 'starting' ? 'Connecting...' : `Not connected: ${peer.status}`,
     account: settings.auth ? { email: settings.auth.email, link: me ? settings.auth.links?.[me.puuid] || 'linking' : null } : null,
     ggez: lcu.connected ? ggez() : false,
+    // signed out: a shuffled handful of emotes for the sign-in screen
+    gateEmotes: settings.auth ? null : gateEmotes(),
     live: (() => { try { return liveView(live.data); } catch (e) { console.error('live view', e.message); return null; } })(),
     watch: settings.watch.map((w) => ({ puuid: w.puuid, ...splitName(players?.data[w.puuid]?.name || w.name), icon: profileIcon(players?.data[w.puuid]?.iconId) })),
     refreshing: [...refreshing],
@@ -722,6 +724,16 @@ async function startImport(key) {
   }
   recomputeSummary();
   broadcast();
+}
+
+let gateEmoteList = null;
+function gateEmotes() {
+  if (!gateEmoteList && game.emotes?.length) {
+    const all = [...game.emotes];
+    for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
+    gateEmoteList = all.slice(0, 60);
+  }
+  return gateEmoteList || [];
 }
 
 // ---------- "gg ez": did we just win? ----------

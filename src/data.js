@@ -18,7 +18,7 @@ class GameData {
     this.skins = {};      // skinId -> skin
     this.skinlines = {};  // lineId -> name
     this.champions = {};  // champId -> { id, name, icon }
-    this.items = {}; this.runes = {}; this.spells = {}; this.augments = {}; this.banners = {}; this.titles = {};
+    this.items = {}; this.runes = {}; this.spells = {}; this.augments = {}; this.banners = {}; this.titles = {}; this.emotes = [];
     this.loaded = false;
   }
 
@@ -33,6 +33,10 @@ class GameData {
     const regalia = await get('regalia.json').catch(() => []);
     // Player titles (the line under your name in the lobby, like "The Iron Revenant")
     const titles = await get('achievementtitles.json').catch(() => []);
+    // Emote art for the sign-in screen (the fun ones: champion, event and TFT emotes, not esports/ranked logos)
+    const emotes = await get('summoner-emotes.json').catch(() => []);
+    this.emotes = (emotes || []).map((x) => x.inventoryIcon || '').filter((p) => /\.png$/i.test(p) && !/esports|ranked|worlds|msi|lck|lpl|lec|lcs/i.test(p))
+      .map((p) => assetUrl(p));
     this.titles = Object.fromEntries((titles || []).filter((t) => t.contentId && t.titleName).map((t) => [t.contentId, t.titleName]));
     // Lobby banner skins (id -> art), the same list your client picks from in Customize Identity
     this.banners = Object.fromEntries((regalia || []).filter((r) => r.regaliaType === 'kBanner' && r.assetPath).map((r) => [Number(r.id), assetUrl(r.assetPath)]));

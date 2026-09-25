@@ -878,7 +878,7 @@ function bindAuth() {
 function renderGate() {
   if (document.getElementById('authEmail')) return; // already showing; don't wipe what they typed
   view.innerHTML = `<div class="gate">
-    <img class="gate__logo" src="assets/ff-mark.png" alt="">
+    <div class="gate__logo" aria-hidden="true"><img id="gateEmote" src="assets/ff-mark.png" alt=""></div>
     <h1 class="gate__title">Sign in to ff</h1>
     <p class="gate__sub">Enter your email and we'll send you a 6-digit code. No password needed, and you'll stay signed in on this PC.</p>
     <div class="field"><span>Email</span>
@@ -892,4 +892,24 @@ function renderGate() {
   </div>`;
   bindAuth();
   document.getElementById('authEmail').focus();
+  cycleGateEmotes();
+}
+// Swain first, then a new emote every couple of seconds (each one loaded before it's swapped in)
+let gateTimer = null;
+function cycleGateEmotes() {
+  clearInterval(gateTimer);
+  let i = 0;
+  gateTimer = setInterval(() => {
+    const el = document.getElementById('gateEmote');
+    const list = state?.gateEmotes || [];
+    if (!el) { clearInterval(gateTimer); return; }
+    if (!list.length) return;
+    const src = list[i++ % list.length];
+    const next = new Image();
+    next.onload = () => {
+      el.classList.remove('is-in'); void el.offsetWidth;
+      el.src = src; el.classList.add('is-in');
+    };
+    next.src = src;
+  }, 2200);
 }
