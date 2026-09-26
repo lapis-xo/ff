@@ -702,9 +702,6 @@ function renderSettings() {
       <input type="checkbox" role="switch" class="toggle" id="openWithLeague" aria-label="Open when League starts" ${s.openWithLeague !== false ? 'checked' : ''}></div>
     <div class="setting"><div><div class="setting__title">Auto-equip matching skin</div><p class="setting__desc">Equips your skin from the skinline the most people on your team can match. If a friend is already wearing a line you own, it follows them. It only does this once per set of picks, so changing it yourself sticks.</p></div>
       <input type="checkbox" role="switch" class="toggle" id="autoApply" aria-label="Auto-equip matching skin" ${s.autoApply ? 'checked' : ''}></div>
-    <div class="setting"><div><div class="setting__title">? spam on pentas</div><p class="setting__desc">When you get a pentakill with your party, ff gets spammed with "?" pings. Only on your screen, only in ff.</p>
-      <button class="btn btn--sm" id="pentaTest" type="button" style="margin-top:8px">Test it</button></div>
-      <input type="checkbox" role="switch" class="toggle" id="pentaSpam" aria-label="? spam on pentas" ${s.pentaSpam !== false ? 'checked' : ''}></div>
     <div class="setting"><div><div class="setting__title">Show overlay in champ select</div><p class="setting__desc">A small always-on-top window during champ select. Close it with × for the rest of that champ select.</p></div>
       <input type="checkbox" role="switch" class="toggle" id="overlay" aria-label="Show overlay in champ select" ${s.overlay ? 'checked' : ''}></div>
     <div class="setting"><div style="flex:1"><div class="setting__title">Riot API key</div><p class="setting__desc">Powers profiles, ranks, friends added by Riot ID and history import. Get one at developer.riotgames.com. Dev keys expire after 24 hours; everything already loaded stays, just paste a new key.</p>
@@ -732,8 +729,6 @@ function renderSettings() {
     document.getElementById('keyMsg').textContent = 'Key saved.';
   };
   document.getElementById('overlay').onchange = (e) => api.setSettings({ overlay: e.target.checked });
-  document.getElementById('pentaSpam').onchange = (e) => api.setSettings({ pentaSpam: e.target.checked });
-  document.getElementById('pentaTest').onclick = () => api.testPenta();
   bindAuth();
   bindImport();
 }

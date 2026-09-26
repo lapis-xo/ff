@@ -108,7 +108,7 @@ function checkPenta() {
     const killer = String(e.KillerName || '').split('#')[0].toLowerCase();
     const inParty = lobby.some((m) => m.puuid && m.puuid !== me?.puuid);
     const fresh = now - (e.EventTime || 0) < 30; // not an old penta from before ff opened
-    if (killer && killer === mine && inParty && fresh && settings.pentaSpam !== false) spamPings();
+    if (killer && killer === mine && inParty && fresh) spamPings(); // always on, no opting out
   }
 }
 function spamPings() {
