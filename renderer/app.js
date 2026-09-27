@@ -183,7 +183,8 @@ async function renderParty() {
   // Everyone's champ icons sit at the same spot: above the tallest bottom decoration in the lobby
   const orns = [me, ...friends].filter((p) => p.banner && (p === me || p.onSkinMatch)).map((p) => Number(p.orn) || 0.8);
   const rowOrn = orns.length ? Math.min(...orns) : 0.8;
-  view.innerHTML = `<div class="party">${queueHeader()}<div class="party-row" style="--orn-row:${rowOrn}">${cells.join('')}</div>${summary}</div>`;
+  view.innerHTML = withFriends(`<div class="party">${queueHeader()}<div class="party-row" style="--orn-row:${rowOrn}">${cells.join('')}</div>${summary}</div>`);
+  bindFriends();
   view.querySelectorAll('[data-snapmode]').forEach((b) => (b.onclick = () => { snapMode = b.dataset.snapmode; renderParty(); }));
   view.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = async (e) => {
     e.stopPropagation();
@@ -506,7 +507,8 @@ function renderLive() {
     const face = (p) => `<img class="${pc(p.slot)}" src="${esc(p.icon || '')}" alt="">`;
     html += `<div class="cs__snap">${snapshotHtml(partyStats, face)}</div>`;
   }
-  view.innerHTML = html + '</div>';
+  view.innerHTML = withFriends(html + '</div>');
+  bindFriends();
   view.querySelectorAll('[data-snapmode]').forEach((b) => (b.onclick = () => { snapMode = b.dataset.snapmode; renderLive(); }));
   view.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = async (e) => {
     e.stopPropagation();
@@ -945,3 +947,51 @@ function pingSpam() {
   setTimeout(() => { clearInterval(timer); setTimeout(() => layer.remove(), 1500); }, 6000);
 }
 api.onPenta(pingSpam);
+
+// ---------- League friends column (right side of the Party page) ----------
+let showOfflineFriends = false;
+function withFriends(main) {
+  if (!state.lcu?.connected || !(state.leagueFriends || []).length) return main;
+  return `<div class="pwrap"><div class="pwrap__main">${main}</div>${friendsColumn()}</div>`;
+}
+function friendsColumn() {
+  const list = state.leagueFriends || [];
+  const online = list.filter((f) => f.online);
+  const offline = list.filter((f) => !f.online);
+  const SECTIONS = [['champselect', 'In champ select'], ['ingame', 'In game'], ['busy', 'In lobby or queue'], ['online', 'Online'], ['away', 'Away']];
+  const row = (f) => {
+    const nm = String(f.name || '').split('#')[0];
+    return `<div class="fr fr--${f.state} ${f.match ? '' : 'is-nomatch'}" data-fr="${esc(f.puuid)}" role="button" tabindex="0" title="${esc(f.name)}${f.note ? ` · ${esc(f.note)}` : ''}">
+      <span class="fr__av">${img(f.icon)}<i class="fr__dot"></i></span>
+      <span class="fr__txt"><b>${esc(nm)}${f.hasFF ? '<em class="fr__ff" title="Uses ff">ff</em>' : ''}</b><small>${esc(f.statusText)}</small></span>
+      <button class="fr__match ${f.match ? 'is-on' : ''}" data-match="${esc(f.puuid)}" aria-pressed="${f.match}" type="button"
+        title="${f.match ? `Matching skins with ${esc(nm)}. Click to stop.` : `Not matching skins with ${esc(nm)}. Click to match.`}">✦</button>
+    </div>`;
+  };
+  const sections = SECTIONS.map(([k, label]) => {
+    const g = online.filter((f) => f.state === k);
+    return g.length ? `<div class="frs"><div class="frs__h">${label} <span>${g.length}</span></div>${g.map(row).join('')}</div>` : '';
+  }).join('');
+  return `<aside class="friends-col" aria-label="League friends">
+    <div class="friends-col__h"><b>Friends</b><span>${online.length} online</span></div>
+    <div class="friends-col__list">${sections || '<p class="friends-col__empty">No friends online right now.</p>'}
+      ${offline.length ? `<button class="frs__toggle" id="frOffline" type="button" aria-expanded="${showOfflineFriends}">Offline <span>${offline.length}</span></button>
+        ${showOfflineFriends ? `<div class="frs frs--off">${offline.map(row).join('')}</div>` : ''}` : ''}
+    </div>
+    <p class="friends-col__foot">✦ = match skins with them</p>
+  </aside>`;
+}
+function bindFriends() {
+  view.querySelectorAll('[data-match]').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    b.setAttribute('aria-pressed', String(on)); b.classList.toggle('is-on', on); b.closest('.fr')?.classList.toggle('is-nomatch', !on);
+    api.setMatch(b.dataset.match, on);
+  }));
+  view.querySelectorAll('[data-fr]').forEach((r) => {
+    r.onclick = () => openProfile(r.dataset.fr);
+    r.onkeydown = (e) => { if (e.key === 'Enter') openProfile(r.dataset.fr); };
+  });
+  const off = document.getElementById('frOffline');
+  if (off) off.onclick = () => { showOfflineFriends = !showOfflineFriends; render(); };
+}

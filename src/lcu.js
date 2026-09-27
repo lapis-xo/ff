@@ -77,6 +77,7 @@ class LCU extends EventEmitter {
       ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-lobby_v2_lobby']));
       ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-matchmaking_v1_search']));
       ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-chat_v1_me']));
+      ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-chat_v1_friends']));
       this.emit('connected');
     });
     ws.on('message', (raw) => {

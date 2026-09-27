@@ -45,6 +45,11 @@ function setupUpdates() {
 let updateCheck = null;
 let updaterRef = null;
 // Only restarts when an update has actually been downloaded
+ipcMain.handle('setMatch', (_e, puuid, on) => {
+  const set = new Set(settings.noMatch || []);
+  if (on) set.delete(puuid); else set.add(puuid);
+  settings.noMatch = [...set]; saveSettings(); onSessionChange(); broadcast(); return true;
+});
 ipcMain.handle('testPenta', () => { spamPings(); return true; });
 ipcMain.handle('authSend', async (_e, email) => { try { await peer.sendCode(String(email).trim()); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
 ipcMain.handle('authVerify', async (_e, email, code) => { try { await peer.verifyCode(String(email).trim(), String(code).trim()); broadcast(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
@@ -118,7 +123,8 @@ const IN_GAME = ['GameStart', 'InProgress', 'Reconnect'];
 // Shared data goes through Supabase now (see cloud.js); "peer" kept as the name the rest of the app uses
 const peer = new Cloud(() => me && { ...me, stats: summary, history: sharedHistory, skinLog: skinLog?.data || {}, form: myForm }, {
   // whose data we want: everyone in the lobby / champ select, plus friends
-  getInterest: () => [...lobby.map((m) => m.puuid), ...Object.keys(known), ...settings.party, ...(session?.myTeam || []).map((c) => c.puuid)],
+  getInterest: () => [...lobby.map((m) => m.puuid), ...Object.keys(known), ...settings.party, ...(session?.myTeam || []).map((c) => c.puuid),
+    ...leagueFriends.filter((f) => f.online).map((f) => f.puuid)],
   getAuth: () => settings.auth || null,
   setAuth: (a) => { settings.auth = a; saveSettings(); broadcast(); },
   getSecret: () => {
@@ -168,7 +174,8 @@ function champSelectState() {
 
   // Groups: 2+ people whose equipped skins share a skinline. Biggest group first.
   const groups = [];
-  let remaining = cards.filter((c) => c.skin?.lines.length);
+  const noMatch = new Set(settings.noMatch || []); // people you've chosen not to match skins with
+  let remaining = cards.filter((c) => c.skin?.lines.length && !noMatch.has(c.id));
   for (;;) {
     const count = new Map();
     for (const c of remaining) for (const l of c.skin.lines) count.set(l, (count.get(l) || 0) + 1);
@@ -179,7 +186,7 @@ function champSelectState() {
     remaining = remaining.filter((c) => !ids.includes(c.id));
   }
 
-  const mates = people.filter((p) => p.f !== me).map(({ f, cell, owned }) => ({
+  const mates = people.filter((p) => p.f !== me && !noMatch.has(p.f.puuid)).map(({ f, cell, owned }) => ({
     id: f.puuid, name: shortName(f.name), owned,
     champ: cell.championId || cell.championPickIntent || 0, selected: cell.selectedSkinId,
   }));
@@ -248,6 +255,8 @@ function getState() {
     cloud: peer.status === 'connected' ? 'Connected' : peer.status === 'starting' ? 'Connecting...' : `Not connected: ${peer.status}`,
     account: settings.auth ? { email: settings.auth.email, link: me ? settings.auth.links?.[me.puuid] || 'linking' : null } : null,
     ggez: lcu.connected ? ggez() : false,
+    leagueFriends: friendsView(),
+    noMatch: settings.noMatch || [],
     // signed out: a shuffled handful of emotes for the sign-in screen
     gateEmotes: settings.auth ? null : gateEmotes(),
     live: (() => { try { return liveView(live.data); } catch (e) { console.error('live view', e.message); return null; } })(),
@@ -756,6 +765,45 @@ function gateEmotes() {
   }
   return gateEmoteList || [];
 }
+
+// ---------- your League friends list (from the client's social panel) ----------
+let leagueFriends = [];
+let friendsTimer = null;
+const GAME_STATUS = { inGame: 'In Game', championSelect: 'In Champ Select', inQueue: 'In Queue', hosting_Normal: 'In Lobby', hosting_RANKED: 'In Lobby',
+  hosting_Custom: 'In Lobby', hosting_ARAM: 'In Lobby', spectating: 'Spectating', outOfGame: 'Online' };
+async function refreshLeagueFriends() {
+  if (!lcu.connected) { leagueFriends = []; return; }
+  let list = [];
+  try { list = await lcu.request('GET', '/lol-chat/v1/friends') || []; } catch { return; }
+  leagueFriends = list.filter((f) => f.puuid).map((f) => {
+    const lol = f.lol || {};
+    const avail = f.availability || 'offline';
+    const online = !['offline', 'mobile'].includes(avail);
+    const gs = lol.gameStatus || '';
+    let state = !online ? 'offline' : gs === 'inGame' ? 'ingame' : gs === 'championSelect' ? 'champselect' : avail === 'away' ? 'away' : avail === 'dnd' && gs ? 'busy' : 'online';
+    if (state === 'online' && /^hosting|inQueue/.test(gs)) state = 'busy';
+    const MODES = { KIWI: 'ARAM: Mayhem', CHERRY: 'Arena', ARAM: 'ARAM', CLASSIC: "Summoner's Rift", TFT: 'TFT', SWIFTPLAY: 'Swiftplay', URF: 'URF' };
+    const mode = lol.gameQueueType || lol.gameMode ? (queueNames[Number(lol.queueId)] || MODES[String(lol.gameMode || '').toUpperCase()] || null) : null;
+    const since = Number(lol.timeStamp) || 0;
+    const statusText = !online ? (avail === 'mobile' ? 'On mobile' : 'Offline')
+      : [GAME_STATUS[gs] || (/^hosting/.test(gs) ? 'In Lobby' : avail === 'away' ? 'Away' : 'Online'), mode, state === 'ingame' && since ? `${Math.max(1, Math.round((Date.now() - since) / 60000))}m` : null].filter(Boolean).join(' · ');
+    return { puuid: f.puuid, name: f.gameName ? `${f.gameName}#${f.gameTag || f.tagLine || ''}` : f.name, icon: profileIcon(f.icon), state, online, statusText,
+      note: f.note || '', group: f.groupName || '' };
+  });
+  broadcast();
+}
+lcu.on('event', (evt) => {
+  if (!String(evt.uri || '').startsWith('/lol-chat/v1/friends')) return;
+  clearTimeout(friendsTimer); friendsTimer = setTimeout(refreshLeagueFriends, 800); // lots of events arrive at once
+});
+lcu.on('connected', () => setTimeout(refreshLeagueFriends, 3000));
+setInterval(() => { if (lcu.connected) refreshLeagueFriends(); }, 60_000); // keeps "12m in game" fresh
+const friendsView = () => {
+  const noMatch = new Set(settings.noMatch || []);
+  const order = { champselect: 0, ingame: 1, busy: 2, online: 3, away: 4, offline: 5 };
+  return leagueFriends.map((f) => ({ ...f, hasFF: Boolean(known[f.puuid] || peer.isOnline(f.puuid)), match: !noMatch.has(f.puuid) }))
+    .sort((a, b) => (order[a.state] - order[b.state]) || a.name.localeCompare(b.name));
+};
 
 // ---------- "gg ez": did we just win? ----------
 let lastResult = null; // { win, at }
