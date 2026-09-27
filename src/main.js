@@ -8,6 +8,7 @@ const { Cloud } = require('./cloud');
 const { JsonStore, fromLcu, fromApi, detailFromLcu, detailFromApi, buildSummary, duoSummary } = require('./stats');
 const { backfill, getApi } = require('./riotapi');
 const { LiveGame } = require('./livegame');
+const opgg = require('./opgg');
 
 // Rank champions the way the League client does: mastery level first, then points
 const byMastery = (list) => [...list].sort((a, b) => (b.championLevel - a.championLevel) || (b.championPoints - a.championPoints));
@@ -99,7 +100,7 @@ let importStatus = null;
 let stopImport = false;
 
 const live = new LiveGame();
-live.on('update', () => { checkPenta(); broadcast(); });
+live.on('update', () => { checkPenta(); if (!currentBuild) try { syncBuild(); } catch { /* not ready */ } broadcast(); });
 
 // Pentakill: when you get one while playing with your party, your ff gets spammed with "?" pings
 const seenPenta = new Set();
@@ -287,6 +288,7 @@ function getState() {
     account: settings.auth ? { email: settings.auth.email, link: me ? settings.auth.links?.[me.puuid] || 'linking' : null } : null,
     ggez: lcu.connected ? ggez() : false,
     leagueFriends: friendsView(),
+    build: buildView(),
     noMatch: settings.noMatch || [],
     // signed out: a shuffled handful of emotes for the sign-in screen
     gateEmotes: settings.auth ? null : gateEmotes(),
@@ -836,6 +838,102 @@ const friendsView = () => {
     .sort((a, b) => (order[a.state] - order[b.state]) || a.name.localeCompare(b.name));
 };
 
+// ---------- champion builds ----------
+// ARAM, Summoner's Rift and URF: OP.GG's stats. Mayhem and Arena (OP.GG doesn't cover them): your group's saved games.
+const OPGG_MODE = { aram: 'aram', rift: 'ranked', urf: 'urf' };
+const OPGG_POS = { TOP: 'top', JUNGLE: 'jungle', MIDDLE: 'mid', MID: 'mid', BOTTOM: 'adc', UTILITY: 'support' };
+let currentBuild = null; // { key, champ, mode, loading, build, error, pushed }
+
+function groupBuild(champId, mode) {
+  const info = game.itemInfo || {};
+  const games = details.values().filter((g) => modeOf(g) === mode);
+  const rows = [];
+  for (const g of games) for (const p of g.players) if (p.champ === champId) rows.push({ p, win: mode === 'arena' ? p.placement === 1 : p.win, top4: p.placement && p.placement <= 4 });
+  if (!rows.length) return { source: 'group', games: 0 };
+  const tally = (pick) => {
+    const m = new Map();
+    for (const r of rows) for (const id of new Set(pick(r.p))) { const t = m.get(id) || { id, play: 0, win: 0 }; t.play++; if (r.win) t.win++; m.set(id, t); }
+    return [...m.values()].sort((a, b) => b.play - a.play).map((t) => ({ ...t, winRate: t.win / t.play, pickRate: t.play / rows.length }));
+  };
+  const finished = (p) => (p.items || []).filter((id) => id && info[id]?.finished && !info[id]?.junk && !info[id]?.boots && info[id]?.price >= 1500);
+  const boots = (p) => (p.items || []).filter((id) => id && info[id]?.boots && info[id]?.price >= 900);
+  return {
+    source: 'group', mode, games: rows.length, winRate: rows.filter((r) => r.win).length / rows.length,
+    top4Rate: mode === 'arena' ? rows.filter((r) => r.top4).length / rows.length : null,
+    items: tally(finished).slice(0, 8), boots: tally(boots).slice(0, 2),
+    augments: mode === 'arena' || mode === 'mayhem' ? tally((p) => p.augments || []).slice(0, 8).map(({ id, play, pickRate }) => ({ id, play, pickRate })) : [], // popularity only (Riot's rules)
+  };
+}
+
+async function loadBuild(champId, mode, position) {
+  const champ = game.champions[champId];
+  if (!champ) return;
+  const key = `${champId}|${mode}|${position || ''}`;
+  if (currentBuild?.key === key && (currentBuild.loading || currentBuild.build)) return;
+  currentBuild = { key, champ: champId, mode, loading: true };
+  broadcast();
+  try {
+    let b;
+    if (OPGG_MODE[mode]) b = await opgg.build(champ.alias || champ.name, OPGG_MODE[mode], mode === 'rift' ? OPGG_POS[String(position || '').toUpperCase()] || 'mid' : 'mid');
+    else b = groupBuild(champId, mode);
+    if (currentBuild?.key !== key) return; // moved on to another champion
+    currentBuild = { key, champ: champId, mode, build: b };
+  } catch (e) {
+    // OP.GG unreachable: fall back to your group's games so there's still something useful
+    currentBuild = { key, champ: champId, mode, build: groupBuild(champId, mode), error: `OP.GG didn't answer (${e.message}); showing your group's games instead` };
+  }
+  broadcast();
+}
+
+// Put the build into League's shop as an item set (the in-game shop shows it under item sets)
+async function pushItemSet() {
+  const cb = currentBuild;
+  if (!cb?.build || cb.pushed || !lcu.connected || !me?.summonerId) return;
+  const b = cb.build;
+  const it = (ids) => (ids || []).filter(Boolean).map((id) => ({ id: String(id), count: 1 }));
+  const blocks = b.source === 'OP.GG'
+    ? [{ type: `Starting items${b.starter?.winRate != null ? ` (${Math.round(b.starter.winRate * 100)}% win)` : ''}`, items: it(b.starter?.ids) },
+      { type: `Core build${b.core?.winRate != null ? ` (${Math.round(b.core.winRate * 100)}% win)` : ''}`, items: it(b.core?.ids) },
+      { type: 'Boots', items: it(b.boots?.ids) },
+      { type: '4th item options', items: it(b.fourth.flatMap((x) => x.ids)) },
+      { type: '5th item options', items: it(b.fifth.flatMap((x) => x.ids)) },
+      { type: 'Last item options', items: it(b.sixth.flatMap((x) => x.ids)) }]
+    : [{ type: `Most built by your group (${b.games} games)`, items: it(b.items.slice(0, 6).map((x) => x.id)) }, { type: 'Boots', items: it(b.boots.map((x) => x.id)) }];
+  const champ = game.champions[cb.champ];
+  const set = {
+    uid: 'ff-build', title: `ff: ${champ?.name || ''} (${b.source === 'OP.GG' ? 'OP.GG' : 'your group'})`, type: 'custom', map: 'any', mode: 'any',
+    associatedChampions: [cb.champ], associatedMaps: [], blocks: blocks.filter((x) => x.items.length), sortrank: 0, startedFrom: 'blank', preferredItemSlots: [],
+  };
+  try {
+    const path = `/lol-item-sets/v1/item-sets/${me.summonerId}/sets`;
+    const cur = await lcu.request('GET', path);
+    if (!cur || !Array.isArray(cur.itemSets)) return; // couldn't read your item sets: never risk overwriting them
+    const others = cur.itemSets.filter((s) => s.uid !== 'ff-build');
+    await lcu.request('PUT', path, { accountId: cur?.accountId, itemSets: [set, ...others], timestamp: Date.now() });
+    currentBuild.pushed = true;
+    broadcast();
+  } catch (e) { console.error('item set', e.message); }
+}
+
+// Keep the build in step with your pick (champ select) or your champion (in game)
+function syncBuild() {
+  let champId = 0, mode = null, position = null, locked = false;
+  if (session?.myTeam) {
+    const mine = session.myTeam.find((c) => c.cellId === session.localPlayerCellId);
+    champId = mine?.championId || mine?.championPickIntent || 0;
+    // locked in = picked and no pick action still pending for you (ARAM/Mayhem have no pick actions at all)
+    locked = Boolean(mine?.championId) && !(session.actions || []).flat().some((x) => x.actorCellId === mine.cellId && x.type === 'pick' && !x.completed);
+    position = mine?.assignedPosition;
+    mode = lobbyQueue?.mode;
+  } else if (live.data) {
+    const v = liveView(live.data);
+    const p = v?.teams?.flatMap((t) => t.players).find((x) => x.isMe);
+    champId = p?.champ?.id || 0; mode = v?.kind; position = p?.role; locked = true;
+  }
+  if (!champId || !mode || mode === 'other') return;
+  loadBuild(champId, mode, position).then(() => { if (locked) pushItemSet(); });
+}
+
 // ---------- "gg ez": did we just win? ----------
 let lastResult = null; // { win, at }
 // Right when the game ends, from League's end-of-game screen
@@ -1245,7 +1343,25 @@ lcu.on('event', (evt) => {
 });
 
 let arenaTeam = null; // your Arena teammates, remembered from champ select: [{ name, champ }]
+function buildView() {
+  const cb = currentBuild;
+  if (!cb) return null;
+  const item = (id) => (game.items[id] ? { id, ...game.items[id] } : null);
+  const opt = (o) => o && { ...o, items: (o.ids || []).map(item).filter(Boolean) };
+  const b = cb.build;
+  const rune = (id) => (game.runes[id] ? { id, ...game.runes[id] } : null);
+  return {
+    champ: game.champions[cb.champ] || null, mode: cb.mode, loading: Boolean(cb.loading), pushed: Boolean(cb.pushed), error: cb.error || null,
+    build: !b ? null : b.source === 'OP.GG' ? {
+      ...b, starter: opt(b.starter), core: opt(b.core), boots: opt(b.boots), fourth: b.fourth.map(opt), fifth: b.fifth.map(opt), sixth: b.sixth.map(opt),
+      spells: b.spells && { ...b.spells, list: (b.spells.ids || []).map((id) => game.spells[id]).filter(Boolean) },
+      runes: b.runes && { ...b.runes, primaryStyle: rune(b.runes.primary), secondaryStyle: rune(b.runes.secondary), primaryList: b.runes.primaryIds.map(rune).filter(Boolean), secondaryList: b.runes.secondaryIds.map(rune).filter(Boolean) },
+    } : { ...b, items: (b.items || []).map((x) => ({ ...x, item: item(x.id) })).filter((x) => x.item), boots: (b.boots || []).map((x) => ({ ...x, item: item(x.id) })).filter((x) => x.item),
+      augments: (b.augments || []).map((x) => ({ ...x, aug: game.augments[x.id] || null })).filter((x) => x.aug) },
+  };
+}
 function onSessionChange() {
+  try { syncBuild(); } catch (e) { console.error('build', e.message); }
   if (session?.myTeam?.length) arenaTeam = session.myTeam.map((c) => ({ name: String(c.gameName || '').toLowerCase(), champ: c.championId || c.championPickIntent || 0 }));
   const cs = champSelectState();
   if (cs.active && cs.mates.length) lastCS = cs;

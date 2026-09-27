@@ -183,7 +183,7 @@ async function renderParty() {
   // Everyone's champ icons sit at the same spot: above the tallest bottom decoration in the lobby
   const orns = [me, ...friends].filter((p) => p.banner && (p === me || p.onSkinMatch)).map((p) => Number(p.orn) || 0.8);
   const rowOrn = orns.length ? Math.min(...orns) : 0.8;
-  view.innerHTML = withFriends(`<div class="party">${queueHeader()}<div class="party-row" style="--orn-row:${rowOrn}">${cells.join('')}</div>${summary}</div>`);
+  view.innerHTML = withFriends(`<div class="party">${queueHeader()}<div class="party-row" style="--orn-row:${rowOrn}">${cells.join('')}</div>${state.live ? buildCard() : ''}${summary}</div>`);
   bindFriends();
   view.querySelectorAll('[data-snapmode]').forEach((b) => (b.onclick = () => { snapMode = b.dataset.snapmode; renderParty(); }));
   view.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = async (e) => {
@@ -496,6 +496,7 @@ function renderLive() {
     html += `<div class="bench"><span class="label">ARAM bench</span>${cs.benchOptions.map((b) =>
       `<span class="bench-chip">${img(b.champ.icon)}${esc(b.champ.name)} <span>${plural(b.count, 'line')}, up to ${b.most} of you</span></span>`).join('')}</div>`;
   }
+  html += buildCard();
   // Party Snapshot stays underneath during champ select
   const smIds = (state.lobby || []).filter((f) => f.onSkinMatch).map((f) => f.puuid);
   const key = `${smIds.join(',')}|${state.statsVersion || ''}`;
@@ -1019,3 +1020,52 @@ function ffSpam() {
   setTimeout(() => { clearInterval(timer); setTimeout(() => layer.remove(), 1500); }, 6000);
 }
 api.onFF(ffSpam);
+
+// ---------- champion build card (champ select and in game) ----------
+function buildCard() {
+  const B = state.build;
+  if (!B || !B.champ) return '';
+  const pct = (x) => (x == null ? '' : `${Math.round(x * 100)}%`);
+  const num = (n) => Number(n || 0).toLocaleString();
+  const ic = (x, cls = '') => (x?.icon ? `<img class="bc__ic ${cls}" src="${esc(x.icon)}" alt="${esc(x.name || '')}" title="${esc(x.name || '')}">` : '');
+  const MODE = { aram: 'ARAM', mayhem: 'ARAM: Mayhem', arena: 'Arena', rift: "Summoner's Rift", urf: 'URF' };
+  const head = (sub) => `<div class="bc__head">${img(B.champ.icon, B.champ.name)}<div><h3 class="bc__title">${esc(B.champ.name)} build</h3><div class="bc__sub">${sub}</div></div>
+    ${B.pushed ? '<span class="bc__pushed" title="Look under item sets in the in-game shop">✓ In your in-game shop</span>' : ''}</div>`;
+  if (B.loading) return `<section class="chartcard bc">${head(`Loading ${esc(MODE[B.mode] || '')} build...`)}</section>`;
+  const b = B.build;
+  if (!b) return '';
+  const err = B.error ? `<p class="bc__err">${esc(B.error)}</p>` : '';
+  if (b.source === 'OP.GG') {
+    const opt = (o) => o && o.items?.length ? `<div class="bc__opt"><span class="bc__row">${o.items.map((x) => ic(x)).join('')}</span><small>${pct(o.winRate)} win<br>${num(o.play)} games</small></div>` : '';
+    const chain = (o) => o?.items?.length ? o.items.map((x) => ic(x, 'is-big')).join('<i class="bc__arrow">›</i>') : '<span class="muted">No data</span>';
+    const skillGrid = b.skills?.order?.length ? `<div class="bc__skills">${['Q', 'W', 'E', 'R'].map((k) => `<div class="bc__skrow"><b>${k}</b>${b.skills.order.slice(0, 15).map((x) => `<i class="${x === k ? 'is-on' : ''}"></i>`).join('')}</div>`).join('')}</div>` : '';
+    const r = b.runes;
+    return `<section class="chartcard bc">
+      ${head(`OP.GG · ${esc(MODE[B.mode] || b.mode)}${B.mode === 'rift' && b.position ? ` · ${esc(b.position)}` : ''} · ${num(b.games)} games · ${pct(b.winRate)} win`)}${err}
+      <div class="bc__grid">
+        <div class="bc__block bc__block--wide"><div class="label">Core build</div><div class="bc__chain">${chain(b.core)}</div>
+          <small class="bc__meta">${pct(b.core?.winRate)} win · ${num(b.core?.play)} games</small></div>
+        <div class="bc__block"><div class="label">Start</div>${opt(b.starter)}</div>
+        <div class="bc__block"><div class="label">Boots</div>${opt(b.boots)}</div>
+        <div class="bc__block"><div class="label">Spells</div><div class="bc__opt"><span class="bc__row">${(b.spells?.list || []).map((x) => ic(x)).join('')}</span><small>${pct(b.spells?.winRate)} win</small></div></div>
+        <div class="bc__block"><div class="label">4th item</div>${b.fourth.slice(0, 3).map(opt).join('')}</div>
+        <div class="bc__block"><div class="label">5th item</div>${b.fifth.slice(0, 3).map(opt).join('')}</div>
+        ${b.sixth.length ? `<div class="bc__block"><div class="label">Last item</div>${b.sixth.slice(0, 3).map(opt).join('')}</div>` : ''}
+        ${r ? `<div class="bc__block bc__block--wide"><div class="label">Runes <small>${pct(r.winRate)} win · ${num(r.play)} games</small></div>
+          <div class="bc__runes"><span class="bc__row">${ic(r.primaryStyle, 'is-style')}${r.primaryList.map((x, i) => ic(x, i === 0 ? 'is-key' : '')).join('')}</span>
+          <span class="bc__row">${ic(r.secondaryStyle, 'is-style')}${r.secondaryList.map((x) => ic(x)).join('')}</span></div></div>` : ''}
+        ${skillGrid ? `<div class="bc__block bc__block--wide"><div class="label">Skill order <small>max ${esc((b.skillMax || []).join(' > '))}</small></div>${skillGrid}</div>` : ''}
+      </div></section>`;
+  }
+  // Mayhem / Arena: your group's own games
+  if (!b.games) return `<section class="chartcard bc">${head(`${esc(MODE[B.mode] || '')} · from your group's games`)}${err}<p class="muted" style="margin:6px 0 0">Nobody in your saved games has played ${esc(B.champ.name)} in ${esc(MODE[B.mode] || 'this mode')} yet. OP.GG doesn't cover this mode, so there's nothing to show.</p></section>`;
+  const row = (x, extra = '') => `<div class="bc__gitem">${ic(x.item || x.aug)}<span><b>${esc((x.item || x.aug).name)}</b><small>${pct(x.pickRate)} of games${extra}</small></span></div>`;
+  return `<section class="chartcard bc">
+    ${head(`${esc(MODE[B.mode])} · from your group's ${num(b.games)} ${b.games === 1 ? 'game' : 'games'} · ${pct(b.winRate)} ${B.mode === 'arena' ? '1st place' : 'win'}${b.top4Rate != null ? ` · ${pct(b.top4Rate)} top 4` : ''}`)}${err}
+    ${b.games < 5 ? '<p class="bc__err">Small sample: take it as a hint, not a rule.</p>' : ''}
+    <div class="bc__grid">
+      <div class="bc__block bc__block--wide"><div class="label">Most built</div><div class="bc__glist">${b.items.map((x) => row(x, `, ${pct(x.winRate)} ${B.mode === 'arena' ? '1st' : 'win'}`)).join('') || '<span class="muted">No finished items recorded</span>'}</div></div>
+      ${b.boots.length ? `<div class="bc__block"><div class="label">Boots</div><div class="bc__glist">${b.boots.map((x) => row(x)).join('')}</div></div>` : ''}
+      ${b.augments.length ? `<div class="bc__block bc__block--wide"><div class="label">Popular augments</div><div class="bc__glist">${b.augments.map((x) => row(x)).join('')}</div></div>` : ''}
+    </div></section>`;
+}

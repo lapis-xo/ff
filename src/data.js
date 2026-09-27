@@ -18,7 +18,7 @@ class GameData {
     this.skins = {};      // skinId -> skin
     this.skinlines = {};  // lineId -> name
     this.champions = {};  // champId -> { id, name, icon }
-    this.items = {}; this.runes = {}; this.spells = {}; this.augments = {}; this.banners = {}; this.titles = {}; this.emotes = [];
+    this.items = {}; this.runes = {}; this.spells = {}; this.augments = {}; this.banners = {}; this.titles = {}; this.emotes = []; this.itemInfo = {};
     this.loaded = false;
   }
 
@@ -44,6 +44,9 @@ class GameData {
     this.augments = Object.fromEntries((augs || []).map((a) => [a.id, { id: a.id, name: a.nameTRA, icon: assetUrl(a.augmentSmallIconPath), rarity: RARITY_AUG[a.rarity] || 'silver' }]));
     const icons = (list) => Object.fromEntries((list || []).map((x) => [x.id, { name: x.name, icon: assetUrl(x.iconPath) }]));
     this.items = icons(items);
+    // what kind of item each one is (finished items vs components, boots, consumables) for build stats
+    this.itemInfo = Object.fromEntries((items || []).map((x) => [x.id, { price: x.priceTotal || 0, finished: !(x.to || []).length,
+      boots: (x.categories || []).includes('Boots'), junk: (x.categories || []).some((c) => /Consumable|Trinket|Vision/i.test(c)) }]));
     // Always show modern art: mode variants (League Classic "Jade" items, Arena/ARAM copies) have big IDs
     // like 773157; point them at the regular item with the same name (3157) when there is one.
     const baseByName = {};
