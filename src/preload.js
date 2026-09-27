@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('skinmatch', {
   onState: (cb) => ipcRenderer.on('state', (_e, s) => cb(s)),
   onPenta: (cb) => ipcRenderer.on('penta', () => cb()),
   testPenta: () => ipcRenderer.invoke('testPenta'),
+  onFF: (cb) => ipcRenderer.on('ffspam', () => cb()),
+  testFF: () => ipcRenderer.invoke('testFF'),
   setMatch: (puuid, on) => ipcRenderer.invoke('setMatch', puuid, on),
   applySkin: (id) => ipcRenderer.invoke('applySkin', id),
   refresh: () => ipcRenderer.invoke('refresh'),

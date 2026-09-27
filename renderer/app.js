@@ -995,3 +995,27 @@ function bindFriends() {
   const off = document.getElementById('frOffline');
   if (off) off.onclick = () => { showOfflineFriends = !showOfflineFriends; render(); };
 }
+
+// ---------- surrender: "ff" spam all over ff ----------
+function ffSpam() {
+  const layer = document.createElement('div');
+  layer.className = 'qspam';
+  layer.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(layer);
+  const words = ['ff', 'ff', 'ff', 'ff 15', '/ff', 'ff?', 'FF'];
+  const one = () => {
+    const p = document.createElement('div');
+    p.className = 'ffword';
+    p.textContent = words[Math.floor(Math.random() * words.length)];
+    p.style.left = `${4 + Math.random() * 88}%`;
+    p.style.top = `${6 + Math.random() * 82}%`;
+    p.style.setProperty('--s', (0.8 + Math.random() * 1.1).toFixed(2));
+    p.style.setProperty('--r', `${Math.round(Math.random() * 24 - 12)}deg`);
+    layer.appendChild(p);
+    setTimeout(() => p.remove(), 1400);
+  };
+  const timer = setInterval(one, 90);
+  one();
+  setTimeout(() => { clearInterval(timer); setTimeout(() => layer.remove(), 1500); }, 6000);
+}
+api.onFF(ffSpam);

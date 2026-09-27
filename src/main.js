@@ -51,6 +51,7 @@ ipcMain.handle('setMatch', (_e, puuid, on) => {
   settings.noMatch = [...set]; saveSettings(); onSessionChange(); broadcast(); return true;
 });
 ipcMain.handle('testPenta', () => { spamPings(); return true; });
+ipcMain.handle('testFF', () => { spamFF(); return true; });
 ipcMain.handle('authSend', async (_e, email) => { try { await peer.sendCode(String(email).trim()); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
 ipcMain.handle('authVerify', async (_e, email, code) => { try { await peer.verifyCode(String(email).trim(), String(code).trim()); broadcast(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } });
 ipcMain.handle('authSignOut', async () => { await peer.signOut(); broadcast(); return true; });
@@ -115,6 +116,36 @@ function checkPenta() {
     const fresh = now - (e.EventTime || 0) < 30; // not an old penta from before ff opened
     if (killer && killer === mine && inParty && fresh) spamPings(); // always on, no opting out
   }
+}
+// Surrender: the game never tells apps about surrender votes, but it does record when a game
+// ENDED in a surrender. When yours does (while you're in a party), ff gets spammed with "ff".
+let currentGameId = null;
+const surrenderChecked = new Set();
+const surrendered = (obj) => /"[^"]*surrender[^"]*"\s*:\s*true/i.test(JSON.stringify(obj || {}));
+async function checkSurrender(gameId) {
+  const key = gameId || `t${Math.floor(Date.now() / 600000)}`;
+  if (surrenderChecked.has(key)) return;
+  surrenderChecked.add(key);
+  const inParty = () => lobby.some((m) => m.puuid && m.puuid !== me?.puuid);
+  // 1) the end-of-game screen, in case it carries the flag
+  try { if (surrendered(await lcu.request('GET', '/lol-end-of-game/v1/eog-stats-block')) && inParty()) return spamFF(); } catch { /* not there */ }
+  // 2) Riot's match data (needs the API key): check until the game shows up
+  if (!settings.riotKey || !me) return;
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 20000));
+    try {
+      const api = riotApi();
+      const [id] = (await api.matchIds(await api.id(me.puuid, me.name), 0, 1)) || [];
+      if (!id || (gameId && Number(id.split('_')[1]) !== Number(gameId))) continue; // not posted yet
+      const m = await api.match(id);
+      const p = m?.info?.participants?.find((x) => x.puuid === me.puuid);
+      if (p && (p.gameEndedInSurrender || p.gameEndedInEarlySurrender || p.gameEndedInIGNBSurrender) && inParty()) spamFF();
+      return;
+    } catch { /* try again */ }
+  }
+}
+function spamFF() {
+  if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('ffspam');
 }
 function spamPings() {
   if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('penta');
@@ -1201,6 +1232,8 @@ lcu.on('event', (evt) => {
   } else if (evt.uri === '/lol-gameflow/v1/gameflow-phase') {
     phase = evt.data || 'None';
     if (phase === 'EndOfGame' || phase === 'PreEndOfGame') setTimeout(readGameResult, 1500);
+    if (phase === 'InProgress') lcu.request('GET', '/lol-gameflow/v1/session').then((s) => { currentGameId = s?.gameData?.gameId || null; }).catch(() => {});
+    if (phase === 'EndOfGame' || phase === 'PreEndOfGame') checkSurrender(currentGameId);
     if (phase !== 'Matchmaking') search = null;
     live.setActive(IN_GAME.includes(phase));
     broadcast();
